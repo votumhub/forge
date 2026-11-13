@@ -1,0 +1,15 @@
+# Receita soda-core (quality) - gerada por `forge init --recipe soda-core`.
+# Como conecta: soda-duckdb 4 (pip install "soda-duckdb>=4,<5"); este arquivo descreve o
+#   DuckDB para o Soda e é lido por src/<pacote>/quality/soda_core_contracts.py.
+# Variáveis (env do alvo no forge.yaml): DUCKDB_DATABASE (arquivo do banco, o mesmo da
+#   receita duckdb). O Soda 4 resolve ${env.NOME} no carregamento; nunca escreva valor literal
+#   aqui, porque este arquivo vai para o git (um banco com senha lê a senha de ${env.X}).
+# dev x prd: o mesmo arquivo nos dois alvos; muda só o DUCKDB_DATABASE do env do alvo.
+# O `name` abaixo é o prefixo do `dataset` nos contratos (lake/<schema>/<tabela>).
+# Documentação: https://docs.soda.io/soda-v4/reference/contract-language-reference (soda-duckdb 4.25)
+type: duckdb
+name: lake
+connection:
+  database: ${env.DUCKDB_DATABASE}
+  schema: main
+  read_only: true

@@ -1,0 +1,13 @@
+# Receita redpanda (bus) - serviço do forge para o broker.
+# Como conecta: o forge sobe compose/redpanda.yaml com -p <project> e --env-file do alvo e
+#   espera o healthcheck do container (rpk cluster health) ficar healthy. O broker NÃO entra em
+#   release_services: recriar a cada release derrubaria produtores e consumidores à toa.
+# Variáveis: veja o topo de compose/redpanda.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo (SASL, host anunciado, porta).
+# Documentação: https://docs.redpanda.com/current/reference/rpk/rpk-cluster/rpk-cluster-health/ (redpanda 24.3)
+compose:
+  - compose/redpanda.yaml
+health:
+  healthy:
+    - redpanda
+  timeout: 180

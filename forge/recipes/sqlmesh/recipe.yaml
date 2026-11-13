@@ -1,0 +1,8 @@
+description: projeto SQLMesh sobre DuckDB com gateway igual ao alvo e estado em arquivo separado do banco
+family: transform
+env: [SQLMESH_DATABASE, SQLMESH_STATE_DATABASE]
+requires: ["sqlmesh>=0.236"]
+docs:
+  url: https://sqlmesh.readthedocs.io/en/stable/integrations/engines/duckdb/
+  version: "sqlmesh 0.236"
+provada: false

@@ -1,0 +1,8 @@
+# Serviço [[ name ]]: sobe compose.yaml; `app` é recriado a cada release.
+compose:
+  - compose.yaml
+release_services:
+  - app
+health:
+  url: http://localhost:${APP_PORT}/health
+  timeout: 60

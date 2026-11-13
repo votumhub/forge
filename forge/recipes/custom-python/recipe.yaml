@@ -1,0 +1,7 @@
+description: contrato de extração em Python puro (Extractor + cursor persistido) para fontes sem conector pronto
+family: ingestion
+env: [CUSTOM_PYTHON_STATE_DIR]
+docs:
+  url: https://typing.python.org/en/latest/spec/protocol.html
+  version: "Python 3.12"
+provada: false

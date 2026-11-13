@@ -1,0 +1,14 @@
+"""Flow da automação [[ name ]]; a regra mora em rules.py."""
+
+from __future__ import annotations
+
+from prefect import flow, get_run_logger
+
+from [[ package ]].rules import decide
+
+
+@flow
+def automation() -> int:
+    chosen = decide([])
+    get_run_logger().info("%s item(ns) tratado(s)", len(chosen))
+    return len(chosen)

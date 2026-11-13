@@ -1,0 +1,45 @@
+# Receita polars (engine) - gerada por `forge init --recipe polars`.
+# Como conecta: polars em processo (pip install "polars>=1.9"); `scan()` devolve um LazyFrame
+#   sobre Parquet local ou em S3/R2/MinIO, com a credencial do alvo.
+# Variáveis (env do alvo no forge.yaml): POLARS_MAX_THREADS, AWS_ACCESS_KEY_ID e
+#   AWS_SECRET_ACCESS_KEY (segredos: secret://AWS_ACCESS_KEY_ID,
+#   secret://AWS_SECRET_ACCESS_KEY), AWS_ENDPOINT_URL (R2/MinIO), AWS_REGION.
+# dev x prd: laptop e servidor não dividem teto; POLARS_MAX_THREADS vem do env do alvo
+#   (ex.: dev 2, prd sem limite = não declarar). Nunca fixado aqui.
+# Regras que custaram caro:
+# - POLARS_MAX_THREADS só vale se estiver no ambiente ANTES do processo importar polars (o
+#   forge já exporta o env do alvo); definir depois não limita um pool que já subiu.
+#   `thread_pool_size()` só mostra o limite em vigor.
+# - storage_options() relê AWS_* a cada chamada, sem cache no import: credencial rotacionada
+#   vale no próximo scan, sem restart.
+# Documentação: https://docs.pola.rs/user-guide/io/cloud-storage/ (polars 1.9)
+from __future__ import annotations
+
+import os
+
+import polars as pl
+
+
+def thread_pool_size() -> int:
+    return pl.thread_pool_size()
+
+
+def storage_options() -> dict[str, str]:
+    options: dict[str, str] = {}
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if key_id and secret:
+        options["aws_access_key_id"] = key_id
+        options["aws_secret_access_key"] = secret
+    endpoint = os.environ.get("AWS_ENDPOINT_URL")
+    if endpoint:
+        options["aws_endpoint_url"] = endpoint
+    region = os.environ.get("AWS_REGION")
+    if region:
+        options["aws_region"] = region
+    return options
+
+
+def scan(uri: str) -> pl.LazyFrame:
+    """Parquet (aceita glob e partição Hive, ex.: s3://bucket/t/d/data=*/*.parquet)."""
+    return pl.scan_parquet(uri, storage_options=storage_options() or None, hive_partitioning=True)

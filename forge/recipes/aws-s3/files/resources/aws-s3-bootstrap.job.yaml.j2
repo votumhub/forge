@@ -1,0 +1,13 @@
+# Receita aws-s3 - job de gatilho deploy: cria o bucket do alvo que falta e, só se
+#   AWS_S3_LIFECYCLE_DAYS estiver no env do alvo, a regra de expiração.
+# Como conecta: o forge roda a task abaixo no momento before_up de todo deploy, no executor
+#   local, com o envelope do alvo; falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html (boto3 1.34)
+trigger:
+  deploy:
+    when: before_up
+tasks:
+  - key: bootstrap
+    run: [python, -m, [[ package ]].storage.aws_s3_landing, bootstrap]

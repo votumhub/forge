@@ -1,0 +1,8 @@
+description: landing em AWS S3 com bucket por alvo, chave por tenant/data e expiração opcional (AWS_S3_LIFECYCLE_DAYS)
+family: storage
+env: [AWS_S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]
+requires: ["boto3>=1.34", "botocore"]
+docs:
+  url: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html
+  version: "boto3 1.34"
+provada: false

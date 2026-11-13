@@ -1,0 +1,55 @@
+# Receita local-fs (storage) - gerada por `forge init --recipe local-fs`.
+# Como conecta: só stdlib. `landing_path(tenant, dataset, dia)` devolve a pasta onde gravar;
+#   `python -m [[ package ]].storage.local_fs_landing bootstrap` (job local-fs-bootstrap, before_up) e
+#   `... health`, sempre dentro do envelope (python -m forge env -t dev -- ...).
+# Variáveis (env do alvo no forge.yaml): LANDING_PATH (ex.: data/landing-dev); FORGE_TARGET
+#   é exportada pelo forge.
+# dev x prd: esta receita é SÓ de dev. Em prd a landing é um bucket (ex.: receita
+#   cloudflare-r2), com a mesma forma de chave; o módulo se recusa a rodar com FORGE_TARGET=prd.
+# Regras:
+#   - disco local nunca é a landing de prd: um redeploy ou reboot da máquina pode levar o disco.
+#   - todo caminho começa pelo tenant, antes do dataset: um tenant nunca lê a pasta de outro.
+#   - o segmento de data é `data=YYYY-MM-DD` (partição Hive), o layout que os leitores esperam.
+# Documentação: https://docs.python.org/3/library/pathlib.html (stdlib)
+from __future__ import annotations
+
+import argparse
+import os
+import re
+from datetime import date
+from pathlib import Path
+
+_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def base_path() -> Path:
+    if os.environ.get("FORGE_TARGET") == "prd":
+        raise RuntimeError("local-fs é landing só de dev; em prd use um bucket")
+    return Path(os.environ["LANDING_PATH"])
+
+
+def landing_path(tenant: str, dataset: str, logical_date: date) -> Path:
+    for segment in (tenant, dataset):
+        if not _SEGMENT.match(segment):
+            raise ValueError(f"segmento inválido no caminho da landing: {segment!r}")
+    return base_path() / tenant / dataset / f"data={logical_date:%Y-%m-%d}"
+
+
+def bootstrap() -> None:
+    base_path().mkdir(parents=True, exist_ok=True)
+
+
+def health() -> None:
+    probe = base_path() / ".health"
+    probe.write_text(str(os.getpid()), encoding="utf-8")
+    probe.unlink()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health"])
+    {"bootstrap": bootstrap, "health": health}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

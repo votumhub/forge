@@ -1,0 +1,9 @@
+description: Dagster em compose (webserver + daemon) com instância em Postgres e um asset agendado de exemplo
+family: orchestrator
+env: [DAGSTER_PORT, DAGSTER_BIND, DAGSTER_PG_PASSWORD, DAGSTER_SCHEDULES_ACTIVE]
+requires: ["dagster>=1.8"]
+runs_in_image: true
+docs:
+  url: https://docs.dagster.io/deployment/oss/deployment-options/docker
+  version: "dagster 1.8"
+provada: false

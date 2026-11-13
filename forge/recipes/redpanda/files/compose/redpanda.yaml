@@ -1,0 +1,53 @@
+# Receita redpanda (bus) - gerada por `forge init --recipe redpanda`.
+# Como conecta: imagem docker.redpanda.com/redpandadata/redpanda num nó só; o forge sobe este
+#   compose por resources/redpanda.service.yaml. O código fala com ele pelo módulo
+#   src/<pacote>/streaming/redpanda_client.py (confluent-kafka).
+# Versão fixada: docker.redpanda.com/redpandadata/redpanda:v26.2.3, a estável (tag latest)
+#   em 2026-09-23. Subir de versão é decisão: troque a tag aqui e prove.
+# Variáveis (env do alvo no forge.yaml): REDPANDA_ADVERTISED_HOST (endereço que os clientes de FORA do compose alcançam:
+#   IP ou nome da máquina), REDPANDA_KAFKA_PORT (padrão 19092), REDPANDA_SASL_ENABLED (true ou
+#   false), REDPANDA_SUPERUSER (padrão admin), REDPANDA_SASL_PASSWORD (segredo:
+#   secret://REDPANDA_SASL_PASSWORD).
+# dev x prd: dev pode ter REDPANDA_SASL_ENABLED=false e host 127.0.0.1; prd tem SASL=true
+#   sempre, porque a API Kafka não tem autenticação por padrão e a máquina é pública. A
+#   diferença mora só no env do alvo.
+# Regras: o broker anuncia um endereço alcançável de fora da rede do compose; anunciando só o
+#   nome do container, nada fora do compose conecta. Replicação fica em 1 num nó só, trade-off
+#   escrito: perder o broker perde o log, e só uma segunda máquina compra replicação real.
+#   enable_sasl entra pelo .bootstrap.yaml, que o Redpanda lê só na PRIMEIRA subida do
+#   cluster; para mudar depois: rpk cluster config set enable_sasl true.
+#   Admin API (9644) e Schema Registry (18081) não têm autenticação aqui: ficam em 127.0.0.1.
+# Documentação: https://docs.redpanda.com/current/manage/security/authentication/ (redpanda 24.3)
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.3
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        printf 'enable_sasl: %s\nsuperusers: ["%s"]\n'
+        '${REDPANDA_SASL_ENABLED:-true}' '${REDPANDA_SUPERUSER:-admin}'
+        > /etc/redpanda/.bootstrap.yaml &&
+        exec /entrypoint.sh redpanda start
+        --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+        --advertise-kafka-addr internal://redpanda:9092,external://${REDPANDA_ADVERTISED_HOST:?defina REDPANDA_ADVERTISED_HOST}:${REDPANDA_KAFKA_PORT:-19092}
+        --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+        --rpc-addr redpanda:33145
+        --advertise-rpc-addr redpanda:33145
+        --smp 1
+        --default-log-level=info
+    environment:
+      RP_BOOTSTRAP_USER: ${REDPANDA_SUPERUSER:-admin}:${REDPANDA_SASL_PASSWORD:?defina REDPANDA_SASL_PASSWORD}
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-19092}:19092"
+      - "127.0.0.1:18081:18081"
+      - "127.0.0.1:9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  redpanda-data: {}

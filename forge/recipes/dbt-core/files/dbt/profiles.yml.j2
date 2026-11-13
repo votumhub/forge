@@ -1,0 +1,26 @@
+# Receita dbt-core (transform) - profile do dbt, versionado e sem nenhum valor literal
+#   sensível: só env_var(), porque este arquivo vai para o git.
+# Variáveis (env do alvo no forge.yaml): DUCKDB_DATABASE (arquivo do banco, ex.:
+#   data/warehouse.duckdb), DBT_SCHEMA (padrão main), DBT_THREADS (casar com os núcleos da
+#   máquina, não com um número maior); opcionais AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY
+#   (segredos) e AWS_ENDPOINT_URL para ler/escrever no lago S3/R2.
+# dev x prd: cada alvo do forge vira um output com o mesmo nome; a diferença é só o env.
+#   Alvo com outro nome? Acrescente um output apontando para a mesma âncora.
+# Documentação: https://docs.getdbt.com/docs/core/connect-data-platform/duckdb-setup
+"[[ package ]]":
+  target: "{{ env_var('FORGE_TARGET', 'dev') }}"
+  outputs:
+    dev: &duckdb
+      type: duckdb
+      path: "{{ env_var('DUCKDB_DATABASE', 'data/warehouse.duckdb') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'main') }}"
+      threads: "{{ env_var('DBT_THREADS', '2') | as_number }}"
+      extensions:
+        - httpfs
+        - parquet
+      settings:
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID', '') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY', '') }}"
+        s3_endpoint: "{{ env_var('AWS_ENDPOINT_URL', '') | replace('https://', '') }}"
+        s3_url_style: path
+    prd: *duckdb

@@ -1,0 +1,108 @@
+# Receita cloudflare-r2 (storage) - gerada por `forge init --recipe cloudflare-r2`.
+# Como conecta: boto3 (pip install "boto3>=1.34") na API S3 do R2, endpoint
+#   https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com, região "auto".
+# Variáveis (env do alvo no forge.yaml): R2_ACCOUNT_ID, R2_BUCKET, AWS_ACCESS_KEY_ID e
+#   AWS_SECRET_ACCESS_KEY (segredos: secret://NOME). A chave pode ser escopada só ao bucket:
+#   o bootstrap confere o próprio bucket (head_bucket) e nunca lista a conta.
+# Expiração: desligada por padrão; nenhum objeto some sem ninguém pedir. Para expirar os
+#   objetos depois de N dias, declare R2_LIFECYCLE_DAYS: "N" no env do alvo e rode o deploy;
+#   o bootstrap grava a regra landing-expiry. Sem a variável, o bucket não ganha regra. Com a
+#   variável declarada, o bootstrap substitui as regras de ciclo de vida que o bucket já tem.
+# dev x prd: cada alvo tem o próprio bucket (ex.: [[ name ]]-dev e [[ name ]]-prd), tudo no
+#   env do alvo; nunca um bucket dividido.
+# Layout: <tenant>/<dataset>/data=YYYY-MM-DD/ - o tenant vem antes do dataset (um tenant
+#   nunca lista o prefixo de outro) e a data é partição Hive.
+# Uso: `python -m forge env -t dev -- python -m [[ package ]].storage.r2_landing bootstrap`
+#   cria o bucket que falta (e a expiração, se declarada); `... health` confere o acesso. O
+#   bootstrap roda no job cloudflare-r2-bootstrap.
+# Documentação: https://developers.cloudflare.com/r2/api/s3/api/
+from __future__ import annotations
+
+import argparse
+import os
+from datetime import date
+from typing import Any
+
+import boto3
+from botocore.exceptions import ClientError
+
+MISSING = {"404", "NoSuchBucket", "NotFound"}
+FORBIDDEN = {"403", "AccessDenied", "Forbidden"}
+
+
+def bucket() -> str:
+    return os.environ["R2_BUCKET"]
+
+
+def client() -> Any:
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+        region_name="auto",
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    )
+
+
+def landing_key(tenant: str, dataset: str, logical_date: date) -> str:
+    return f"{tenant}/{dataset}/data={logical_date:%Y-%m-%d}/"
+
+
+def ensure_bucket(s3: Any) -> None:
+    try:
+        s3.head_bucket(Bucket=bucket())
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        if code in MISSING:
+            s3.create_bucket(Bucket=bucket())
+            return
+        if code in FORBIDDEN:
+            raise SystemExit(
+                f"bucket {bucket()}: a chave AWS_ACCESS_KEY_ID não tem permissão nele "
+                f"(código {code}); confira no painel do R2 se o token alcança esse bucket "
+                f"com leitura e escrita, e se R2_BUCKET está certo no env do alvo"
+            ) from error
+        raise
+
+
+def lifecycle_days() -> int | None:
+    declared = os.environ.get("R2_LIFECYCLE_DAYS", "").strip()
+    if not declared:
+        return None
+    if not declared.isdigit() or int(declared) < 1:
+        raise SystemExit(
+            f"R2_LIFECYCLE_DAYS={declared!r}: use um número inteiro de dias (1 ou mais) "
+            f"no env do alvo, ou remova a variável para não expirar nada"
+        )
+    return int(declared)
+
+
+def bootstrap() -> None:
+    s3 = client()
+    ensure_bucket(s3)
+    days = lifecycle_days()
+    if days is None:
+        return
+    rule = {
+        "ID": "landing-expiry",
+        "Status": "Enabled",
+        "Filter": {"Prefix": ""},
+        "Expiration": {"Days": days},
+    }
+    s3.put_bucket_lifecycle_configuration(
+        Bucket=bucket(), LifecycleConfiguration={"Rules": [rule]}
+    )
+
+
+def health() -> None:
+    client().head_bucket(Bucket=bucket())
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health"])
+    {"bootstrap": bootstrap, "health": health}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

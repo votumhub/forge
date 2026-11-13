@@ -1,0 +1,20 @@
+"""Passos puros do pipeline [[ name ]]: sem Prefect, sem I/O escondido, testáveis sozinhos.
+
+O flow (flows.py) só orquestra estes passos. Configuração vem do env do alvo (os.environ),
+montado pelo forge; nada de ambiente decidido aqui.
+"""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+
+def window(today: date, days: int) -> tuple[date, date]:
+    """Janela [início, fim) dos últimos `days` dias antes de `today`."""
+    if days < 1:
+        raise ValueError("days precisa ser pelo menos 1")
+    return today - timedelta(days=days), today
+
+
+def summarize(rows: list[dict[str, object]]) -> dict[str, int]:
+    return {"rows": len(rows)}

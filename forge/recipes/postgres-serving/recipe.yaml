@@ -1,0 +1,8 @@
+description: publica a camada gold no Postgres por troca atômica de schema (next -> gold -> previous) com rollback instantâneo
+family: serving
+env: [POSTGRES_SERVING_WRITER_URL, POSTGRES_SERVING_SCHEMA, POSTGRES_SERVING_READER_ROLE]
+requires: ["psycopg[binary]>=3.3"]
+docs:
+  url: https://www.postgresql.org/docs/current/sql-alterschema.html
+  version: "psycopg 3.3 / PostgreSQL 16"
+provada: false

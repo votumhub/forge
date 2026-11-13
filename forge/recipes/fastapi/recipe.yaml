@@ -1,0 +1,9 @@
+description: API FastAPI em compose (fastapi run, sem reload), /health para o forge, /docs só em dev e DuckDB servido só-leitura por requisição
+family: service
+env: [FASTAPI_PORT, FASTAPI_BIND, FASTAPI_WORKERS, FASTAPI_DOCS, GOLD_PATH]
+requires: ["fastapi[standard]>=0.115", "duckdb"]
+runs_in_image: true
+docs:
+  url: https://fastapi.tiangolo.com/deployment/docker/
+  version: "fastapi 0.115"
+provada: false

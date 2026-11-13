@@ -1,0 +1,12 @@
+# Receita metabase (bi) - serviço do forge para o Metabase e seu banco de aplicação.
+# Como conecta: o forge sobe compose/metabase.yaml com -p <project> e --env-file do alvo e
+#   espera /api/health; nada é recriado a cada release (o Metabase não usa o código do bundle).
+# Variáveis: METABASE_PORT (padrão 3000); o resto está no topo de compose/metabase.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo. O primeiro start migra o banco de
+#   aplicação e pode passar de minutos, daí o timeout largo.
+# Documentação: https://www.metabase.com/docs/latest/installation-and-operation/running-metabase-on-docker
+compose:
+  - compose/metabase.yaml
+health:
+  url: http://localhost:${METABASE_PORT:-3000}/api/health
+  timeout: 600

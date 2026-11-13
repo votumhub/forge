@@ -1,0 +1,6 @@
+-- Receita dbt-core (transform) - modelo de exemplo da camada staging.
+-- Como conecta: roda no DuckDB do profile; troque o select pela fonte real (ex.: a
+--   partição Hive da landing: read_parquet('s3://<bucket>/<tenant>/<dataset>/data=*/*.parquet')).
+-- dev x prd: o mesmo SQL nos dois alvos; o que muda é o banco e o bucket, pelo env.
+-- Documentação: https://docs.getdbt.com/docs/build/models
+select 1 as id, current_date as loaded_on

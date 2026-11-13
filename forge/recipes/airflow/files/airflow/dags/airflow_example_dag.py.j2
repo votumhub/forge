@@ -1,0 +1,37 @@
+# Receita airflow (orchestrator) - gerada por `forge init --recipe airflow`.
+# Como conecta: DAG do Airflow 3 (apache-airflow>=3.0,<4, API `airflow.sdk`); o dag-processor
+#   lê esta pasta montada em /opt/project/airflow/dags e src/ está no PYTHONPATH, então a task
+#   pode importar [[ package ]] direto.
+# Variáveis (env do alvo no forge.yaml): a task enxerga o env inteiro do alvo (FORGE_TARGET,
+#   FORGE_RELEASE e o que o forge.yaml declarar); segredos chegam como secret://NOME resolvido.
+# dev x prd: a DAG é a mesma; em dev ela nasce pausada (AIRFLOW_DAGS_PAUSED=true no env do alvo).
+# Uma task que depende de operador deferrable precisa do triggerer no ar (ele sobe no compose).
+# Documentação: https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/taskflow.html (apache-airflow 3.3)
+from __future__ import annotations
+
+import os
+from datetime import datetime
+
+from airflow.sdk import dag, task
+
+
+@dag(
+    dag_id="[[ package ]]_example",
+    schedule="@daily",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+    tags=["[[ name ]]"],
+)
+def example() -> None:
+    @task
+    def extract() -> list[int]:
+        return [1, 2, 3]
+
+    @task
+    def load(rows: list[int]) -> None:
+        print(f"alvo={os.environ['FORGE_TARGET']} linhas={len(rows)}")
+
+    load(extract())
+
+
+example()

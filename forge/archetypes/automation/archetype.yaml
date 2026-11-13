@@ -1,0 +1,8 @@
+description: automação enxuta - um job curto e frequente num Prefect que já existe (sem servidor próprio)
+questions:
+  work_pool:
+    prompt: work pool do Prefect já existente que roda a automação
+    default: automations
+  timezone:
+    prompt: fuso horário da agenda
+    default: America/Sao_Paulo

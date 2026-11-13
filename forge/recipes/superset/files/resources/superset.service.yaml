@@ -1,0 +1,14 @@
+# Receita superset (bi) - serviço do forge para o Superset e seu banco de metadados.
+# Como conecta: o forge sobe compose/superset.yaml com -p <project> e --env-file do alvo,
+#   recria só o `superset` a cada release (config e env novos; o banco fica) e espera o
+#   /health responder. A primeira subida demora: db upgrade + init rodam antes do servidor.
+# Variáveis: SUPERSET_PORT (padrão 8088); o resto está no topo de compose/superset.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://superset.apache.org/docs/installation/docker-compose (superset 4.1)
+compose:
+  - compose/superset.yaml
+release_services:
+  - superset
+health:
+  url: http://localhost:${SUPERSET_PORT:-8088}/health
+  timeout: 300

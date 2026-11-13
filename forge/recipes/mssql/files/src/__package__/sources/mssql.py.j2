@@ -1,0 +1,59 @@
+# Receita mssql (source) - gerada por `forge init --recipe mssql`.
+# Como conecta: pymssql (pip install "pymssql>=2.3") com login SOMENTE LEITURA; extrator
+#   que escreve é extrator que pode corromper o sistema de origem.
+# Variáveis (env do alvo no forge.yaml): MSSQL_HOST, MSSQL_PORT (1433), MSSQL_DATABASE,
+#   MSSQL_USER, MSSQL_PASSWORD (segredo: secret://MSSQL_PASSWORD), MSSQL_ENCRYPT.
+# dev x prd: em dev pode apontar para uma base de amostra; em prd MSSQL_ENCRYPT=true (TLS),
+#   porque o link sai da rede local. A diferença mora no env do alvo, nunca aqui.
+# Colunas vêm do INFORMATION_SCHEMA, nunca declaradas: coluna nova ou removida vira achado
+#   de schema, não dado errado em silêncio. Prefira change tracking a checksum por XOR, que
+#   não vê duas mudanças que se cancelam nem registra deleção.
+# Documentação: https://pymssql.readthedocs.io/en/stable/ (pymssql 2.3)
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from typing import Any
+
+import pymssql
+
+
+def connect() -> pymssql.Connection:
+    return pymssql.connect(
+        server=os.environ["MSSQL_HOST"],
+        port=os.environ.get("MSSQL_PORT", "1433"),
+        database=os.environ["MSSQL_DATABASE"],
+        user=os.environ["MSSQL_USER"],
+        password=os.environ["MSSQL_PASSWORD"],
+        encryption="require" if os.environ.get("MSSQL_ENCRYPT", "true") == "true" else "off",
+        login_timeout=30,
+    )
+
+
+def columns(conn: pymssql.Connection, schema: str, table: str) -> list[str]:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ORDER BY ORDINAL_POSITION",
+        (schema, table),
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def read_table(
+    schema: str, table: str, cursor_column: str | None = None, since: Any = None
+) -> Iterator[dict[str, Any]]:
+    """Lê a tabela inteira ou só o que passou de `since` em `cursor_column` (incremental)."""
+    with connect() as conn:
+        names = columns(conn, schema, table)
+        if not names:
+            raise LookupError(f"{schema}.{table} não existe ou o login não enxerga a tabela")
+        select = ", ".join(f"[{name}]" for name in names)
+        query = f"SELECT {select} FROM [{schema}].[{table}]"
+        params: tuple[Any, ...] = ()
+        if cursor_column is not None and since is not None:
+            query += f" WHERE [{cursor_column}] > %s ORDER BY [{cursor_column}]"
+            params = (since,)
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute(query, params)
+        yield from cursor

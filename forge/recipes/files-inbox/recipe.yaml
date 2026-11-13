@@ -1,0 +1,7 @@
+description: caixa de entrada de arquivos com dedupe por hash de conteúdo, quarentena com motivo e retenção por alvo
+family: source
+env: [INBOX_PATH, INBOX_RETENTION_DAYS]
+docs:
+  url: https://docs.python.org/3/library/hashlib.html#hashlib.file_digest
+  version: "Python 3.11+ (stdlib)"
+provada: false

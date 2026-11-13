@@ -1,0 +1,27 @@
+# Receita nats (bus) - gerada por `forge init --recipe nats`.
+# Como conecta: nats-server com JetStream, configurado por nats/nats-server.conf (montado do
+#   repositório via ${FORGE_ROOT}); o token chega ao container pelo env do alvo
+#   (env_file: ${FORGE_ENV_FILE}) e o conf o lê como $NATS_AUTH_TOKEN, sem passar pela linha
+#   de comando. O código publica por src/<pacote>/streaming/nats_bus.py (nats-py).
+# Variáveis (env do alvo no forge.yaml): NATS_AUTH_TOKEN (segredo: secret://NATS_AUTH_TOKEN),
+#   NATS_PORT (4222), NATS_MONITOR_PORT (8222).
+# dev x prd: mesmo arquivo e token nos dois (o padrão do NATS é sem autenticação nenhuma, e um
+#   dev aberto vira hábito); muda só o valor do token e as portas, pelo env do alvo.
+# JetStream grava no volume nomeado nats-data, nunca na camada gravável do container: recriar
+#   o container não pode apagar todo stream.
+# Documentação: https://docs.nats.io/running-a-nats-service/nats_docker (nats-server 2.11)
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    env_file: ${FORGE_ENV_FILE}
+    restart: unless-stopped
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "127.0.0.1:${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - ${FORGE_ROOT}/nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats-data:/data
+
+volumes:
+  nats-data: {}

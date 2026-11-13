@@ -1,0 +1,8 @@
+description: ClickHouse em compose como camada de serving, com publicação atômica por EXCHANGE TABLES e backup nativo
+family: serving
+env: [CLICKHOUSE_HOST, CLICKHOUSE_HTTP_PORT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD, CLICKHOUSE_DATABASE, CLICKHOUSE_SECURE]
+requires: ["clickhouse-connect>=0.8"]
+docs:
+  url: https://clickhouse.com/docs/integrations/python
+  version: "clickhouse-server 26.3 / clickhouse-connect 0.8"
+provada: false

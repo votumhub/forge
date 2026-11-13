@@ -1,0 +1,8 @@
+description: pipeline dlt com carga incremental por merge e credenciais só por variável de ambiente
+family: ingestion
+env: [DLT_DESTINATION, DLT_DATASET, RUNTIME__DLTHUB_TELEMETRY, DESTINATION__POSTGRES__CREDENTIALS, DESTINATION__DUCKDB__CREDENTIALS]
+requires: ["dlt[duckdb,postgres]>=1.15"]
+docs:
+  url: https://dlthub.com/docs/general-usage/credentials/setup
+  version: "dlt 1.15"
+provada: false

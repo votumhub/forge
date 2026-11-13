@@ -1,0 +1,10 @@
+description: pipeline de dados com Prefect próprio (server e worker em compose) e um job agendado
+recipes:
+  - prefect
+questions:
+  work_pool:
+    prompt: nome do work pool do Prefect
+    default: pipeline
+  timezone:
+    prompt: fuso horário da agenda dos jobs
+    default: America/Sao_Paulo

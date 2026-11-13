@@ -1,0 +1,7 @@
+description: agenda no GitHub Actions que roda um comando do bundle dentro do envelope do alvo, sem sobreposição de runs
+family: orchestrator
+env: []
+docs:
+  url: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule
+  version: "GitHub Actions (actions/checkout@v7, astral-sh/setup-uv@v10)"
+provada: false

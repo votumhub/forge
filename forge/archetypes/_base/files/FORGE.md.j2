@@ -1,0 +1,170 @@
+# FORGE: como este repositório vai a dev e prd
+
+Uma página para gente e para LLM. O código deste projeto **não** lida com ambiente,
+credencial, orquestração nem entrega: ele lê variáveis de ambiente. O `forge` monta esse
+ambiente por alvo (o *envelope*) e leva o bundle ao ar.
+
+## Estrutura
+
+| Caminho | O que é |
+|---|---|
+| `forge.yaml` | o manifesto: bundle, variáveis, env, alvos (`dev`, `prd`, cada um com `proxy` se houver route), artifacts |
+| `resources/<nome>.service.yaml` | **service**, o que fica ligado (docker compose): arquivos, `release_services`, `health` |
+| `resources/<nome>.job.yaml` | **job**, o que roda e termina: `trigger` (`schedule`, `event`, `manual` vão ao Prefect com `flow` e `work_pool`; `deploy` roda `tasks` dentro do deploy) |
+| `resources/<nome>.storage.yaml` | **storage**, onde o dado mora: `kind: bucket\|volume\|database`, `ensure` (bucket/database), `backup: {job, restore}` |
+| `resources/<nome>.route.yaml` | **route**, por onde se entra: `service`, `port`, `host`, `access: public\|private`, `allow`, `tls` (nginx), `upstream`; `targets.<alvo>` sobrepõe |
+| `docs/debito-tecnico.md` | os atalhos conscientes do projeto; leia antes de mexer numa área |
+| `.forge/` | tudo o que o forge gera (envelope, state, builds); nunca vai para o git |
+
+## Instalação
+
+[% if vendored %]Este projeto carrega o forge vendorizado em `./forge`, sem pin no `pyproject.toml`. O
+`.venv` leva só as três dependências dele, e todo verbo sai por `python -m forge`:
+
+```
+uv venv && uv pip install "pydantic~=2.13" "jinja2~=3.1" "pyyaml~=6.0"
+uv run --no-sync python -m forge validate
+```
+
+Nos comandos abaixo, troque `uv run forge` por `uv run --no-sync python -m forge`.
+[% else %]O forge é uma biblioteca instalada no `.venv` deste projeto, declarada num grupo de
+dependências só dele (`[dependency-groups]` no `pyproject.toml`):
+
+```
+[[ forge_group ]]
+```
+
+Quem cria o `.venv` e materializa o comando é um só: `uv sync --group forge`. O grupo não é
+default, então o `uv sync` sem a flag não instala o forge.
+
+```
+uv sync --group forge        # cria/atualiza o .venv com o grupo forge
+uv run forge validate        # daqui para baixo, todo verbo sai por aqui
+```
+
+Versione o `uv.lock` que o uv cria. Sem ele no git, o CI o recria, a árvore fica suja e o
+deploy de produção recusa (`árvore suja; production só sai de commit limpo`).
+[% endif %]
+## Verbos
+
+```
+uv run forge validate [--strict] [-t ALVO]   # manifesto + política + débito
+uv run forge summary -t dev [-o json]        # foto estática do bundle, sem segredo
+uv run forge env -t dev -- <comando>         # roda qualquer coisa com o env do alvo
+uv run forge plan -t dev                     # o que o deploy mudaria
+uv run forge deploy -t dev                   # sobe (prd exige --yes, árvore limpa e ref certa; o --yes é a assinatura de uma pessoa)
+uv run forge run -t dev <job>                # dispara um job agora
+uv run forge run -t dev <job> --seguir       # dispara e acompanha a rodada criada até o fim
+uv run forge seguir -t dev <job>             # acompanha a rodada em curso do job, ou a última
+uv run forge rollback -t dev                 # volta à última release ok
+uv run forge restore -t dev <storage>        # roda o restore do backup (prd exige --yes)
+uv run forge destroy -t dev [--data]         # derruba e remove as imagens construídas (só development; --data remove volumes)
+uv run forge recipes [-o json]               # receitas disponíveis para o init
+uv run forge schema [service|job|storage|route]  # JSON Schema do forge.yaml ou de um recurso
+```
+
+## Acompanhar uma rodada
+
+`uv run forge run -t <alvo> <job> --seguir` dispara o job e acompanha a rodada que o disparo
+criou (pelo id que o Prefect devolve). `uv run forge seguir -t <alvo> <job>` acompanha a rodada
+em curso do job (`PENDING`, `RUNNING`, `CANCELLING` ou `PAUSED`; a só agendada, `SCHEDULED`,
+nunca) ou, sem ela, a última que começou. Os dois leem os logs da rodada na API do Prefect, pelo
+`PREFECT_API_URL` do envelope do alvo, até o estado final, e imprimem só a mensagem de cada
+registro como `HH:MM:SS  <mensagem>`, com a hora no fuso da agenda do job (UTC sem agenda). O que
+o forge diz (qual rodada, o estado final) vai para o stderr. `--timeout <segundos>` põe um teto
+na espera. O bloco opcional do `forge.yaml` escolhe o que aparece:
+
+```yaml
+seguir:
+  logger: meu_projeto.painel          # o logger e os filhos; sem o bloco, tudo que não é prefect.*
+  cabecalho: "FLUXO  PASSO  EVENTO"   # opcional: impresso uma vez, depois de HORA, alinhado
+```
+
+Código de saída: 0 a rodada terminou em `Completed`; 1 terminou em outro estado final
+(`Failed`, `Crashed`, `Cancelled`); 2 erro do forge; 3 o teto do `--timeout` venceu com a
+rodada em curso (não é falha dela); 130 Ctrl-C (para de acompanhar, a rodada continua no
+Prefect).
+
+## Ordem do deploy
+
+lock → checks (prd) → jobs `before_deploy` (env sem segredo) → artifacts → envelope com
+segredos → `ensure` dos storages → jobs `before_up` → up dos services → health → routes
+(arquivo no proxy + reload) → jobs do Prefect → jobs `after_up` → release registrada →
+remoção das imagens construídas que o rollback não alcança mais. Qualquer falha grava a release
+como `failed` (se o state aceita gravação) e o lock sai sempre (se a pasta não deixa apagá-lo,
+vira aviso). Falha depois que o up começou: em prd o forge volta sozinho à
+release anterior e termina em erro mesmo assim (se o state está ilegível ou não grava o desfecho, ele não
+volta e diz onde o serviço ficou); em dev ele não volta e a mensagem traz o
+`forge rollback -t dev`. Depois de um `destroy`, o rollback em dev não acha mais a imagem antiga:
+rode um deploy novo.
+
+## CI
+
+`.github/workflows/forge.yml` valida todo PR com `validate --strict`. Deploy só acontece com a
+variável de repositório `FORGE_RUNNER` (rótulo de um runner self-hosted que alcança o host do
+deploy): push na `[[ dev_branch ]]` sobe dev, e prd sobe por Run workflow sobre uma etiqueta `v*`.
+Sem ela, o run passa e escreve "Deploy pulado" no resumo. O cabeçalho do arquivo explica onde
+cada job roda e o cuidado com PR de fork.
+
+Com `FORGE_RUNNER` definida:
+
+- Push na `[[ dev_branch ]]` roda `forge deploy -t dev --yes`: dev sobe sozinho.
+- Etiqueta `v*` roda `forge plan -t prd`, que só mostra o que mudaria e não muda nada.
+  Se existe `.github/workflows/imagem.yml` (molde `app`), ele publica a imagem da versão no
+  registro a cada etiqueta `v*`, com ou sem `FORGE_RUNNER`; prd puxa essa imagem.
+- Run workflow (dispatch) roda `forge deploy -t prd --yes` no environment `production` do
+  GitHub: é o deploy em produção. O forge recusa se a ref não casar `targets.prd.git`.
+
+O `--yes` em production é a assinatura de uma pessoa: o agente não o acrescenta por conta
+própria, e disparar o Run workflow também é deploy em produção. Quem tem escrita no repositório
+edita `targets.prd.git`, então a proteção de verdade é o environment `production` com revisor
+obrigatório (Settings > Environments).
+
+## Regras do envelope
+
+- O programa lê **só** `os.environ`. Nada de `.env` lido pelo código, nada de credencial no repo.
+- Valor sensível no `forge.yaml` é sempre `secret://NOME`; o provider do alvo resolve
+  (`env`, `dotenv` ou `exec`). Em dev o padrão é `.forge/secrets/dev.env` (fora do git).
+- Todo processo recebe `FORGE_TARGET`, `FORGE_RELEASE`, `FORGE_ENV_FILE`, `FORGE_ROOT` e
+  `FORGE_STATE_PATH`. Não use o prefixo `FORGE_` para nomes seus.
+- Diferença entre dev e prd mora em `targets.<alvo>.env`/`variables`, nunca em `if` no código.
+
+## Como acrescentar
+
+- **Um serviço:** escreva o `compose` dele, crie `resources/<nome>.service.yaml` com
+  `compose: [arquivo]`, `release_services` (os que mudam a cada release) e `health`
+  (`url`, `healthy` ou `command`). Imagem própria? Declare em `artifacts` com `env`, `build`
+  (dev) e `pull` (prd) e use `${<ENV>}` no compose.
+- **Um job:** a função do flow em `src/`, e `resources/<nome>.job.yaml` com
+  `flow: src/[[ package ]]/flows.py:<funcao>`, `work_pool` e `trigger` com uma chave:
+  `schedule: {cron, timezone}`, `event: {...}` (os `triggers` do Prefect) ou `manual: true`.
+  Em dev agenda e evento nascem desligados.
+- **Um passo do deploy (migração, bootstrap):** `resources/<nome>.job.yaml` com
+  `trigger: {deploy: {when: before_deploy|before_up|after_up}}` e
+  `tasks: [{key, run: [argv], service?, depends_on: [], timeout?}]`. O forge roda as tasks em
+  ordem; com `service`, dentro do contêiner daquele serviço compose. Falha = release failed.
+- **Um storage:** `resources/<nome>.storage.yaml`. Volume o forge cria (`<project>_<nome>` ou
+  `name:`); bucket e database pedem `ensure: [comando idempotente que cria se faltar]`. Backup
+  é um job normal; o storage aponta para ele em `backup.job` e diz como voltar em
+  `backup.restore`. Dado nunca sai em prd; em dev só com `destroy --data`.
+- **Uma route:** `resources/<nome>.route.yaml` com `service` (serviço compose), `port`, `host`,
+  `access` (`private` exige `allow` com CIDR) e, por alvo, o que muda em `targets.<alvo>`. O
+  alvo declara `proxy: {kind: caddy|nginx, config_dir, reload}`; caddy faz HTTPS sozinho,
+  nginx pede `tls: {cert, key}`. O proxy manda para `<service>:<port>` (rede docker); proxy
+  instalado no host usa `upstream: 127.0.0.1:<porta publicada>`. O arquivo no proxy é
+  `forge-<bundle>-<alvo>-<route>`. A porta que o compose publica no host fica só em
+  `127.0.0.1` (`<NOME>_BIND` no env do alvo, como `APP_BIND`); na frente vai o proxy, e
+  `0.0.0.0` abre em toda interface, só atrás de proxy ou rede privada.
+- **Nomes:** o nome do recurso é único dentro do tipo; `web.service.yaml` e `web.route.yaml`
+  podem conviver.
+- **Uma receita:** `uv run forge init --recipe <nome>` acrescenta os arquivos da receita
+  sem sobrescrever nada; cada arquivo abre com um comentário dizendo como conecta, que
+  variáveis pede, o que muda entre dev e prd e onde está a documentação da ferramenta.
+- **Um segredo:** `NOME: secret://NOME` no `env`, o valor em `.forge/secrets/dev.env` para
+  dev e no provider de prd; `forge validate` recusa literal com cara de segredo.
+
+## Débito técnico
+
+Atalho tomado = entrada em `docs/debito-tecnico.md` no mesmo commit. Leia o débito antes de
+mexer na área, pague ao passar pelo código quando couber, gatilho vencido passa na frente
+de feature, e o que foi pago sai do arquivo (a história fica no git).

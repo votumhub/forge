@@ -1,0 +1,7 @@
+description: relatórios Evidence servidos pelo evidencedev/serve em compose, com conector direto ao Postgres do gold e login básico
+family: bi
+env: [EVIDENCE_IMAGE_TAG, EVIDENCE_PORT, EVIDENCE_BASIC_USER, EVIDENCE_BASIC_PASSWORD, EVIDENCE_AUTH_DISABLED, EVIDENCE_PG_HOST, EVIDENCE_PG_PORT, EVIDENCE_PG_DATABASE, EVIDENCE_PG_USER, EVIDENCE_PG_PASSWORD, EVIDENCE_PG_SSLMODE]
+docs:
+  url: https://docs.evidence.dev/self-host
+  version: "evidencedev/serve (tag fixada por EVIDENCE_IMAGE_TAG)"
+provada: false

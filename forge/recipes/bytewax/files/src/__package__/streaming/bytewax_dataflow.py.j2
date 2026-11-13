@@ -1,0 +1,48 @@
+# Receita bytewax (stream) - gerada por `forge init --recipe bytewax`.
+# Como conecta: bytewax (pip install "bytewax[kafka]>=0.21,<1"); o serviço compose/bytewax.yaml
+#   roda `python -m bytewax.run [[ package ]].streaming.bytewax_dataflow:flow -r /recovery ...`.
+#   Troque `transform` pela lógica real; entrada e saída são tópicos Kafka.
+# Variáveis (env do alvo no forge.yaml): BYTEWAX_BROKERS (lista separada por vírgula, ex.:
+#   kafka:9092), BYTEWAX_INPUT_TOPIC e BYTEWAX_OUTPUT_TOPIC.
+# dev x prd: o código é o mesmo; brokers e tópicos de cada alvo vêm do env do alvo (ex.:
+#   eventos-dev e eventos-prd), nunca um tópico dividido entre alvos.
+# Erro de leitura do Kafka derruba o dataflow de propósito: o container reinicia e retoma do
+#   último snapshot do recovery, em vez de pular mensagens em silêncio.
+# Documentação: https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.kafka.operators.html (bytewax 0.21)
+from __future__ import annotations
+
+import os
+
+from bytewax import operators as op
+from bytewax.connectors.kafka import KafkaError, KafkaSinkMessage, KafkaSourceMessage
+from bytewax.connectors.kafka import operators as kop
+from bytewax.dataflow import Dataflow
+
+BytesMessage = KafkaSourceMessage[bytes | None, bytes | None]
+
+
+def brokers() -> list[str]:
+    return [item.strip() for item in os.environ["BYTEWAX_BROKERS"].split(",") if item.strip()]
+
+
+def fail(error: KafkaError[bytes | None, bytes | None]) -> None:
+    raise RuntimeError(f"erro lendo o Kafka: {error.err}")
+
+
+def transform(message: BytesMessage) -> KafkaSinkMessage[bytes | None, bytes | None]:
+    value = message.value.upper() if message.value is not None else None
+    return KafkaSinkMessage(key=message.key, value=value)
+
+
+def build() -> Dataflow:
+    dataflow = Dataflow("[[ package ]]_stream")
+    source = kop.input(
+        "kafka_in", dataflow, brokers=brokers(), topics=[os.environ["BYTEWAX_INPUT_TOPIC"]]
+    )
+    op.inspect("kafka_errors", source.errs, lambda _step, error: fail(error))
+    output = op.map("transform", source.oks, transform)
+    kop.output("kafka_out", output, brokers=brokers(), topic=os.environ["BYTEWAX_OUTPUT_TOPIC"])
+    return dataflow
+
+
+flow = build()

@@ -1,0 +1,62 @@
+# Receita superset (bi) - gerada por `forge init --recipe superset`.
+# Como conecta: apache/superset (web) + postgres (banco de metadados); o forge sobe este
+#   compose por resources/superset.service.yaml. A config entra por
+#   superset/superset_config.py, montado do repositório (${FORGE_ROOT}).
+#   A imagem apache/superset é a "lean": se a subida falhar com "No module named psycopg2",
+#   derive uma imagem com `pip install psycopg2-binary`; drivers dos bancos de DADOS (duckdb,
+#   mssql...) também entram por imagem derivada.
+# Versão fixada: apache/superset:6.1.0, a estável (tag latest) no Docker Hub em 2026-09-23.
+#   A config desta receita foi escrita para a 4.1 e ainda não rodou na 6.1.
+# Variáveis (env do alvo no forge.yaml): SUPERSET_PORT (padrão 8088), SUPERSET_SECRET_KEY, SUPERSET_DB_PASSWORD e
+#   SUPERSET_ADMIN_PASSWORD (segredos: secret://SUPERSET_SECRET_KEY,
+#   secret://SUPERSET_DB_PASSWORD, secret://SUPERSET_ADMIN_PASSWORD), SUPERSET_BASE_URL.
+# dev x prd: mesmo compose; porta e segredos vêm do env do alvo.
+# Regras: a tag é fixa porque `superset db upgrade` roda a cada subida e migra o banco de
+#   metadados; subir de versão é decisão, não efeito colateral. Fica no perfil web + banco
+#   até alguém pedir alertas ou relatórios assíncronos: Celery e Redis viram três containers
+#   por um recurso que ninguém pediu. A porta publica só em 127.0.0.1; a borda HTTPS expõe.
+# Documentação: https://superset.apache.org/docs/installation/docker-compose (superset 4.1)
+services:
+  superset-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD:?defina SUPERSET_DB_PASSWORD}
+    volumes:
+      - superset-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      retries: 12
+    restart: unless-stopped
+
+  superset:
+    image: apache/superset:6.1.0
+    command:
+      - bash
+      - -c
+      - >-
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname Superset
+        --email admin@example.com --password "$$SUPERSET_ADMIN_PASSWORD" &&
+        superset init &&
+        exec /usr/bin/run-server.sh
+    environment:
+      SUPERSET_CONFIG_PATH: /app/forge_config/superset_config.py
+      SUPERSET_DB_HOST: superset-db
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?defina SUPERSET_SECRET_KEY}
+      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:?defina SUPERSET_DB_PASSWORD}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?defina SUPERSET_ADMIN_PASSWORD}
+      SUPERSET_BASE_URL: ${SUPERSET_BASE_URL:-http://localhost:8088}
+    volumes:
+      - ${FORGE_ROOT}/superset/superset_config.py:/app/forge_config/superset_config.py:ro
+    ports:
+      - "127.0.0.1:${SUPERSET_PORT:-8088}:8088"
+    depends_on:
+      superset-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  superset-db-data: {}

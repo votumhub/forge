@@ -1,0 +1,43 @@
+# Receita postgres (source) - gerada por `forge init --recipe postgres`.
+# Como conecta: psycopg 3 (pip install "psycopg[binary]>=3.3,<4") com uma role que só faz
+#   SELECT; nunca uma role que escreve.
+# Variáveis (env do alvo no forge.yaml): POSTGRES_URL (segredo: secret://POSTGRES_URL, no
+#   formato postgresql://usuario:senha@host:5432/base) e POSTGRES_SSLMODE.
+# dev x prd: em dev POSTGRES_SSLMODE=prefer serve para banco local; em prd use require ou
+#   verify-full, porque a origem vive fora da rede. A diferença mora no env do alvo.
+# Tabela sem coluna incremental natural (updated_at ou id crescente) é recarga cheia por
+#   decisão declarada, não descoberta quando a carga ficar lenta.
+# Documentação: https://www.psycopg.org/psycopg3/docs/ (psycopg 3.3)
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from typing import Any
+
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+
+
+def connect() -> psycopg.Connection[dict[str, Any]]:
+    return psycopg.connect(
+        os.environ["POSTGRES_URL"],
+        sslmode=os.environ.get("POSTGRES_SSLMODE", "require"),
+        row_factory=dict_row,
+    )
+
+
+def read_table(
+    schema: str, table: str, cursor_column: str | None = None, since: Any = None
+) -> Iterator[dict[str, Any]]:
+    """Lê a tabela inteira ou só o que passou de `since` em `cursor_column` (incremental)."""
+    query = sql.SQL("SELECT * FROM {}.{}").format(sql.Identifier(schema), sql.Identifier(table))
+    params: tuple[Any, ...] = ()
+    if cursor_column is not None and since is not None:
+        query += sql.SQL(" WHERE {col} > %s ORDER BY {col}").format(
+            col=sql.Identifier(cursor_column)
+        )
+        params = (since,)
+    with connect() as conn, conn.cursor(name=f"read_{table}") as cursor:
+        cursor.execute(query, params)
+        yield from cursor

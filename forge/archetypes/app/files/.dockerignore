@@ -1,0 +1,4 @@
+.git
+.forge
+.venv
+**/__pycache__

@@ -1,0 +1,7 @@
+description: fixa a versão do Python do projeto para o uv, casada com o requires-python e com o uv.lock no git
+family: devenv
+env: []
+docs:
+  url: https://docs.astral.sh/uv/concepts/python-versions/#python-version-files
+  version: "uv 0.11"
+provada: false

@@ -1,0 +1,8 @@
+description: catálogo em Markdown gerado dos resources/*.job.yaml e *.service.yaml, com área, publicação e agenda copiadas da fonte
+family: catalog
+env: [FORGE_ROOT, CATALOG_PATH]
+requires: ["pyyaml>=6.0"]
+docs:
+  url: https://pyyaml.org/wiki/PyYAMLDocumentation
+  version: "pyyaml 6.0"
+provada: false

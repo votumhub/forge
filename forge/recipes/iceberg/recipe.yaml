@@ -1,0 +1,8 @@
+description: tabelas Apache Iceberg via PyIceberg com SqlCatalog por tenant e warehouse em disco ou S3/R2, particionadas por data
+family: table_format
+env: [ICEBERG_CATALOG_DIR, ICEBERG_WAREHOUSE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_REGION]
+requires: ["pyiceberg[sql-sqlite,pyarrow]>=0.7", "pyarrow"]
+docs:
+  url: https://py.iceberg.apache.org/api/
+  version: "pyiceberg 0.7"
+provada: false

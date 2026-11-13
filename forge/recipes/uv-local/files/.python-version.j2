@@ -1,0 +1,13 @@
+# Receita uv-local (devenv) - gerada por `forge init --recipe uv-local`.
+# Como conecta: uv (binário, https://docs.astral.sh/uv/getting-started/installation/) lê este
+#   arquivo primeiro para escolher o interpretador; o uv ignora as linhas com # e usa a
+#   primeira linha de versão. `uv sync` cria o .venv com ela; `uv run` roda dentro dele.
+# Variáveis (env do alvo no forge.yaml): nenhuma; o Python é do projeto, não do alvo.
+# dev x prd: o mesmo Python nos dois alvos (a imagem do Dockerfile usa a mesma versão);
+#   nada aqui muda por alvo.
+# Regras: a versão abaixo bate exatamente com o requires-python do pyproject.toml, porque o uv
+#   resolve pelo que este arquivo diz primeiro. O uv.lock vai para o git, nunca para o
+#   .gitignore: projeto sem lock resolve outro conjunto de dependências em cada máquina que
+#   roda `uv sync` (em CI e no deploy use `uv sync --locked`).
+# Documentação: https://docs.astral.sh/uv/concepts/python-versions/#python-version-files (uv 0.11)
+[[ python ]]

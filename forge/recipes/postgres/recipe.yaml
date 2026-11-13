@@ -1,0 +1,8 @@
+description: lê tabelas de um PostgreSQL com role somente leitura, cheia ou incremental por cursor
+family: source
+env: [POSTGRES_URL, POSTGRES_SSLMODE]
+requires: ["psycopg[binary]>=3.3"]
+docs:
+  url: https://www.psycopg.org/psycopg3/docs/
+  version: "psycopg 3.3"
+provada: true

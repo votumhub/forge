@@ -1,0 +1,77 @@
+# Receita ducklake (table_format) - gerada por `forge init --recipe ducklake`.
+# Como conecta: duckdb em processo com a extensão ducklake (pip install "duckdb>=1.3"; a
+#   extensão é instalada no primeiro `attach`). Use `connect(tenant)` e escreva/leia em
+#   `lake.<tabela>`. Gancho de saúde: `python -m [[ package ]].storage.ducklake_table_format health`.
+# Variáveis (env do alvo no forge.yaml): DUCKLAKE_CATALOG_DIR (pasta dos catálogos, um arquivo
+#   <tenant>.ducklake por tenant, ex.: data/catalog), DUCKLAKE_DATA_PATH (ex.: data/lake ou
+#   s3://<bucket>/lake); se os dados estão em S3/R2: AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY
+#   (segredos: secret://NOME) e AWS_ENDPOINT_URL (R2/MinIO).
+# dev x prd: dev costuma usar disco local; prd aponta DUCKLAKE_DATA_PATH para o bucket do alvo.
+#   A diferença é só o env de cada alvo.
+# Regras:
+#   - um catálogo por tenant, com os dados sob <DUCKLAKE_DATA_PATH>/<tenant>/: o primeiro nível de
+#     toda chave do bucket é sempre o tenant.
+#   - o catálogo (arquivo em DUCKLAKE_CATALOG_DIR) é o ponto único de falha, não os dados: faça
+#     backup dele.
+#   - confirme que a versão instalada do DuckLake suporta PARTITIONED BY antes de depender disso
+#     em prd (a documentação consultada não fechava o ponto).
+# Documentação: https://ducklake.select/docs/stable/duckdb/introduction (duckdb 1.3 / ducklake)
+from __future__ import annotations
+
+import argparse
+import os
+import re
+from pathlib import Path
+
+import duckdb
+
+_TENANT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def connect(tenant: str, alias: str = "lake") -> duckdb.DuckDBPyConnection:
+    conn = duckdb.connect()
+    _configure_object_storage(conn)
+    attach(conn, tenant, alias)
+    return conn
+
+
+def attach(conn: duckdb.DuckDBPyConnection, tenant: str, alias: str = "lake") -> None:
+    if not _TENANT.match(tenant):
+        raise ValueError(f"tenant inválido: {tenant!r}")
+    catalog_dir = Path(os.environ["DUCKLAKE_CATALOG_DIR"])
+    catalog_dir.mkdir(parents=True, exist_ok=True)
+    catalog = catalog_dir / f"{tenant}.ducklake"
+    data_path = f"{os.environ['DUCKLAKE_DATA_PATH'].rstrip('/')}/{tenant}/"
+    conn.execute("INSTALL ducklake")
+    conn.execute("LOAD ducklake")
+    conn.execute(f"ATTACH 'ducklake:{catalog.as_posix()}' AS {alias} (DATA_PATH '{data_path}')")
+
+
+def _configure_object_storage(conn: duckdb.DuckDBPyConnection) -> None:
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if key_id is None or secret is None:
+        return
+    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").removeprefix("https://")
+    extra = f", ENDPOINT '{endpoint}', URL_STYLE 'path'" if endpoint else ""
+    conn.execute(
+        f"CREATE OR REPLACE SECRET lake_s3 (TYPE s3, KEY_ID '{key_id}', SECRET '{secret}'{extra})"
+    )
+
+
+def health() -> None:
+    conn = duckdb.connect()
+    conn.execute("INSTALL ducklake")
+    conn.execute("LOAD ducklake")
+    conn.close()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["health"])
+    parser.parse_args()
+    health()
+
+
+if __name__ == "__main__":
+    main()

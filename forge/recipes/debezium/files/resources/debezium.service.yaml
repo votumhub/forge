@@ -1,0 +1,14 @@
+# Receita debezium (ingestion) - serviço do forge para o Debezium Server.
+# Como conecta: o forge sobe compose/debezium.yaml com -p <project> e --env-file do alvo, recria
+#   o container a cada release (env novo; offsets preservados no volume) e espera /q/health.
+# Variáveis (env do alvo no forge.yaml): DEBEZIUM_PORT (padrão 8080); o resto está no topo de
+#   debezium/debezium-application.properties.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://debezium.io/documentation/reference/stable/operations/debezium-server.html (debezium 3.6)
+compose:
+  - compose/debezium.yaml
+release_services:
+  - debezium
+health:
+  url: http://localhost:${DEBEZIUM_PORT:-8080}/q/health
+  timeout: 180

@@ -1,0 +1,19 @@
+"""Flows do Prefect para [[ name ]]. Cada flow vira um job em resources/<job>.job.yaml."""
+
+from __future__ import annotations
+
+import os
+from datetime import date
+
+from prefect import flow, get_run_logger
+
+from [[ package ]].steps import summarize, window
+
+
+@flow
+def ingest(days: int = 1) -> dict[str, int]:
+    logger = get_run_logger()
+    start, end = window(date.today(), days)
+    logger.info("alvo %s, janela %s a %s", os.environ.get("FORGE_TARGET", "local"), start, end)
+    rows: list[dict[str, object]] = []
+    return summarize(rows)

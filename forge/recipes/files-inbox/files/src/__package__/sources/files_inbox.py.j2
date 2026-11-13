@@ -1,0 +1,103 @@
+# Receita files-inbox (source) - gerada por `forge init --recipe files-inbox`.
+# Como conecta: só stdlib (Python 3.11+). Arquivos chegam em <INBOX_PATH>/drop/; o job chama
+#   `pending()`, processa cada `Arrival` e fecha com `accept(a)` ou `reject(a, motivo)`.
+#   Ganchos: `python -m [[ package ]].sources.files_inbox bootstrap` (before_up), `... health`
+#   (after_up) e `... expire` (job agendado, ou no início de cada run).
+# Variáveis (env do alvo no forge.yaml): INBOX_PATH (ex.: var/inbox), INBOX_RETENTION_DAYS
+#   (obrigatória fora de dev; ex.: 30).
+# dev x prd: pasta e retenção vêm do env do alvo; em dev a retenção pode ficar sem valor
+#   (nada expira), em prd ela precisa estar declarada.
+# Regras:
+#   - todo arquivo é identificado pelo hash do conteúdo antes de processar: o mesmo arquivo com
+#     outro nome é duplicata.
+#   - arquivo que falha na validação vai para quarantine/ com o motivo gravado ao lado; nunca é
+#     apagado em silêncio.
+#   - nada em drop/ sobrevive sem processamento além de INBOX_RETENTION_DAYS: vai para
+#     quarantine/ com o motivo "expirado".
+# Documentação: https://docs.python.org/3/library/hashlib.html#hashlib.file_digest (stdlib)
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Arrival:
+    path: Path
+    digest: str
+
+
+def root() -> Path:
+    return Path(os.environ["INBOX_PATH"])
+
+
+def area(name: str) -> Path:
+    return root() / name
+
+
+def digest_of(path: Path) -> str:
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def pending() -> list[Arrival]:
+    arrivals = [Arrival(p, digest_of(p)) for p in sorted(area("drop").iterdir()) if p.is_file()]
+    fresh: dict[str, Arrival] = {}
+    for arrival in arrivals:
+        if _seen(arrival.digest) or arrival.digest in fresh:
+            reject(arrival, "duplicata: o mesmo conteúdo já foi recebido")
+        else:
+            fresh[arrival.digest] = arrival
+    return list(fresh.values())
+
+
+def _seen(digest: str) -> bool:
+    return any(area("processed").glob(f"{digest}__*"))
+
+
+def accept(arrival: Arrival) -> Path:
+    target = area("processed") / f"{arrival.digest}__{arrival.path.name}"
+    arrival.path.replace(target)
+    return target
+
+
+def reject(arrival: Arrival, reason: str) -> Path:
+    target = area("quarantine") / f"{arrival.digest}__{arrival.path.name}"
+    arrival.path.replace(target)
+    target.with_name(target.name + ".reason.txt").write_text(reason, encoding="utf-8")
+    return target
+
+
+def expire() -> None:
+    days = os.environ.get("INBOX_RETENTION_DAYS")
+    if not days:
+        return
+    limit = time.time() - int(days) * 86400
+    for path in area("drop").iterdir():
+        if path.is_file() and path.stat().st_mtime < limit:
+            reject(Arrival(path, digest_of(path)), f"expirado: mais de {days} dias sem processar")
+
+
+def bootstrap() -> None:
+    for name in ("drop", "processed", "quarantine"):
+        area(name).mkdir(parents=True, exist_ok=True)
+
+
+def health() -> None:
+    missing = [n for n in ("drop", "processed", "quarantine") if not area(n).is_dir()]
+    if missing:
+        raise SystemExit(f"{root()} sem as pastas {missing}; rode bootstrap")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health", "expire"])
+    {"bootstrap": bootstrap, "health": health, "expire": expire}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

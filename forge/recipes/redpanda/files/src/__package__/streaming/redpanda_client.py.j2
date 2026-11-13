@@ -1,0 +1,41 @@
+# Receita redpanda (bus) - cliente Kafka para o broker da receita.
+# Como conecta: confluent-kafka (pip install "confluent-kafka>=2.6"); producer() e
+#   consumer(group) já vêm configurados pelo env, com SASL/SCRAM quando o alvo liga SASL.
+# Variáveis (env do alvo no forge.yaml): REDPANDA_BROKERS (host:porta anunciados, ex.:
+#   127.0.0.1:19092; de dentro do mesmo compose use redpanda:9092), REDPANDA_SASL_ENABLED
+#   (true ou false), REDPANDA_SUPERUSER (padrão admin; em produção crie um usuário próprio do
+#   app com `rpk security user create`), REDPANDA_SASL_PASSWORD (segredo:
+#   secret://REDPANDA_SASL_PASSWORD).
+# dev x prd: prd sempre com REDPANDA_SASL_ENABLED=true; a diferença mora só no env do alvo.
+# Regra: producer.flush() antes de sair, senão as mensagens em buffer somem com o processo.
+# Documentação: https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html (confluent-kafka 2.6)
+from __future__ import annotations
+
+import os
+
+from confluent_kafka import Consumer, Producer
+
+
+def client_config() -> dict[str, str]:
+    config = {"bootstrap.servers": os.environ["REDPANDA_BROKERS"]}
+    if os.environ.get("REDPANDA_SASL_ENABLED", "true") == "true":
+        config |= {
+            "security.protocol": "SASL_PLAINTEXT",
+            "sasl.mechanism": "SCRAM-SHA-256",
+            "sasl.username": os.environ.get("REDPANDA_SUPERUSER", "admin"),
+            "sasl.password": os.environ["REDPANDA_SASL_PASSWORD"],
+        }
+    return config
+
+
+def producer() -> Producer:
+    return Producer(client_config() | {"enable.idempotence": "true"})
+
+
+def consumer(group: str, topics: list[str]) -> Consumer:
+    handle = Consumer(
+        client_config()
+        | {"group.id": group, "auto.offset.reset": "earliest", "enable.auto.commit": "false"}
+    )
+    handle.subscribe(topics)
+    return handle

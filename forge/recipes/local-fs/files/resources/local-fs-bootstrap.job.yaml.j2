@@ -1,0 +1,12 @@
+# Receita local-fs - job de gatilho deploy: cria a pasta de landing (recusa em prd).
+# Como conecta: o forge roda a task abaixo no momento before_up de todo deploy, no executor
+#   local, com o envelope do alvo; falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://docs.python.org/3/library/pathlib.html (Python 3.11+ (stdlib))
+trigger:
+  deploy:
+    when: before_up
+tasks:
+  - key: bootstrap
+    run: [python, -m, [[ package ]].storage.local_fs_landing, bootstrap]

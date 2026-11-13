@@ -1,0 +1,35 @@
+# Receita meltano (ingestion) - gerada por `forge init --recipe meltano`.
+# Como conecta: meltano 3 (pip install "meltano>=3,<4"; "meltano[s3]" se o estado for para
+#   S3/R2). Este é o projeto Meltano; quem roda é o flow
+#   src/[[ package ]]/orchestration/meltano_flow.py, agendado por resources/meltano.job.yaml.
+# Variáveis (env do alvo no forge.yaml): MELTANO_PROJECT_ROOT (esta pasta, padrão meltano),
+#   MELTANO_SEND_ANONYMOUS_USAGE_STATS=false (em todo alvo: telemetria anônima é vazamento
+#   que ninguém autorizou), MELTANO_STATE_BACKEND_URI (onde mora o bookmark incremental),
+#   TAP_POSTGRES_SQLALCHEMY_URL (segredo: secret://TAP_POSTGRES_SQLALCHEMY_URL, role só
+#   leitura), TARGET_DUCKDB_FILEPATH (arquivo DuckDB de destino).
+# dev x prd: o environment do Meltano é o FORGE_TARGET (dev/prd, declarados abaixo). Em dev o
+#   estado pode ficar no systemdb local (.meltano/meltano.db); em prd MELTANO_STATE_BACKEND_URI
+#   aponta para fora do artefato (s3://<bucket>/meltano-state ou postgresql://...), porque o
+#   sqlite padrão morre no próximo redeploy e a carga incremental recomeça do zero.
+# Credencial de tap nunca é escrita aqui: vai no env (TAP_<NOME>_<SETTING>, o mesmo que
+#   `meltano config set --store=env`), para este arquivo continuar seguro de ler.
+# Documentação: https://docs.meltano.com/concepts/state_backends (meltano 3)
+version: 1
+default_environment: dev
+send_anonymous_usage_stats: false
+environments:
+  - name: dev
+  - name: prd
+plugins:
+  extractors:
+    - name: tap-postgres
+      variant: meltanolabs
+      pip_url: meltanolabs-tap-postgres
+      select:
+        - public-*.*
+  loaders:
+    - name: target-duckdb
+      variant: jwills
+      pip_url: target-duckdb~=0.6
+      config:
+        default_target_schema: raw

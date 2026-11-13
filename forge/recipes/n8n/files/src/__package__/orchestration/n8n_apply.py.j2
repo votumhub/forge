@@ -1,0 +1,96 @@
+# Receita n8n (orchestrator) - gerada por `forge init --recipe n8n`.
+# Como conecta: httpx (pip install "httpx>=0.27") na API pública do n8n (/api/v1). Monta o
+#   workflow em Python (nada de JSON versionado), cria ou atualiza pelo nome, marca com a tag
+#   do alvo e publica ou desliga. Roda no job n8n-apply (after_up); à mão:
+#   python -m forge env -t dev -- python -m [[ package ]].orchestration.n8n_apply
+# Variáveis (env do alvo no forge.yaml): N8N_URL (ex.: http://localhost:5678), N8N_API_KEY
+#   (segredo: secret://N8N_API_KEY, nunca literal), N8N_SCHEDULE_ACTIVE, N8N_CRON,
+#   N8N_PIPELINE_URL (o que o agendamento chama por POST), N8N_TIMEZONE; FORGE_TARGET vem do
+#   forge e entra no nome e na tag.
+# dev x prd: em dev N8N_SCHEDULE_ACTIVE=false (nenhum agendamento de dev fica rodando dentro
+#   do n8n); em prd true. A diferença mora só no env do alvo.
+# Pegadinhas do n8n 2.x:
+# - PUT /workflows/{id} só grava RASCUNHO; o que roda é a versão publicada (activeVersionId).
+#   Por isso, depois do PUT, /activate publica a versão atual e o script confere que
+#   activeVersionId == versionId.
+# - O corpo de POST/PUT aceita só name, nodes, connections e settings; mandar "active" ou
+#   "tags" é recusado ("must NOT have additional properties"). Tag vai por /workflows/{id}/tags.
+# - O nó Execute Command vem desligado por padrão no 2.x; por isso o agendamento chama uma URL.
+# Documentação: https://docs.n8n.io/api/api-reference/ (n8n 2.x)
+from __future__ import annotations
+
+import os
+import uuid
+from typing import Any
+
+import httpx
+
+
+def workflow_name() -> str:
+    return f"[[ name ]]-{os.environ.get('FORGE_TARGET', 'dev')}"
+
+
+def _node_id(node_name: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"n8n-node/{node_name}"))
+
+
+def build_workflow() -> dict[str, Any]:
+    target = os.environ.get("FORGE_TARGET", "dev")
+    trigger, call = f"schedule-{target}", f"run-[[ name ]]-{target}"
+    cron = {"field": "cronExpression", "expression": os.environ.get("N8N_CRON", "0 3 * * *")}
+    nodes = [
+        {"id": _node_id(trigger), "name": trigger, "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2,
+         "position": [0, 0], "parameters": {"rule": {"interval": [cron]}}},
+        {"id": _node_id(call), "name": call, "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2,
+         "position": [280, 0],
+         "parameters": {"method": "POST", "url": os.environ["N8N_PIPELINE_URL"]}},
+    ]
+    connections = {trigger: {"main": [[{"node": call, "type": "main", "index": 0}]]}}
+    settings = {"timezone": os.environ.get("N8N_TIMEZONE", "UTC")}
+    return {"name": workflow_name(), "nodes": nodes, "connections": connections,
+            "settings": settings}
+
+
+def client() -> httpx.Client:
+    headers = {"X-N8N-API-KEY": os.environ["N8N_API_KEY"], "accept": "application/json"}
+    base = os.environ["N8N_URL"].rstrip("/") + "/api/v1"
+    return httpx.Client(base_url=base, headers=headers, timeout=30.0)
+
+
+def upsert(api: httpx.Client, body: dict[str, Any]) -> str:
+    found = api.get("/workflows", params={"name": body["name"]}).raise_for_status().json()
+    existing = next((w for w in found["data"] if w["name"] == body["name"]), None)
+    if existing is None:
+        return str(api.post("/workflows", json=body).raise_for_status().json()["id"])
+    api.put(f"/workflows/{existing['id']}", json=body).raise_for_status()
+    return str(existing["id"])
+
+
+def tag_id(api: httpx.Client, name: str) -> str:
+    tags = api.get("/tags", params={"limit": 250}).raise_for_status().json()["data"]
+    match = next((t for t in tags if t["name"] == name), None)
+    if match is not None:
+        return str(match["id"])
+    return str(api.post("/tags", json={"name": name}).raise_for_status().json()["id"])
+
+
+def set_active(api: httpx.Client, workflow_id: str, active: bool) -> None:
+    api.post(f"/workflows/{workflow_id}/{'activate' if active else 'deactivate'}").raise_for_status()
+    if not active:
+        return
+    current = api.get(f"/workflows/{workflow_id}").raise_for_status().json()
+    if current.get("activeVersionId") != current.get("versionId"):
+        raise RuntimeError(f"workflow {workflow_id}: a versão publicada não é a recém-gravada")
+
+
+def apply() -> None:
+    target = os.environ.get("FORGE_TARGET", "dev")
+    with client() as api:
+        workflow_id = upsert(api, build_workflow())
+        tags = [{"id": tag_id(api, target)}]
+        api.put(f"/workflows/{workflow_id}/tags", json=tags).raise_for_status()
+        set_active(api, workflow_id, os.environ.get("N8N_SCHEDULE_ACTIVE", "false") == "true")
+
+
+if __name__ == "__main__":
+    apply()

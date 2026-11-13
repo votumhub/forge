@@ -1,0 +1,9 @@
+description: Airflow 3 em compose (api-server, scheduler, dag-processor, triggerer) com Postgres próprio e uma DAG de exemplo
+family: orchestrator
+env: [AIRFLOW_PORT, AIRFLOW_PG_PASSWORD, AIRFLOW_FERNET_KEY, AIRFLOW_JWT_SECRET, AIRFLOW_DAGS_PAUSED]
+requires: ["apache-airflow>=3.3"]
+runs_in_image: true
+docs:
+  url: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html
+  version: "apache-airflow 3.3"
+provada: false

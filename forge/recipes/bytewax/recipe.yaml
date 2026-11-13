@@ -1,0 +1,9 @@
+description: dataflow Bytewax lendo e escrevendo Kafka em container longo, com diretório de recovery por alvo
+family: stream
+env: [BYTEWAX_BROKERS, BYTEWAX_INPUT_TOPIC, BYTEWAX_OUTPUT_TOPIC]
+requires: ["bytewax[kafka]>=0.21"]
+runs_in_image: true
+docs:
+  url: https://docs.bytewax.io/stable/guide/concepts/recovery.html
+  version: "bytewax 0.21"
+provada: false

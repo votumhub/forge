@@ -1,0 +1,7 @@
+description: workflow de testes no GitHub Actions (uv sync --frozen + pytest) ao lado do forge.yml, sem corrida entre pushes
+family: ci
+env: []
+docs:
+  url: https://docs.astral.sh/uv/guides/integration/github/
+  version: "GitHub Actions (actions/checkout@v7, astral-sh/setup-uv@v10)"
+provada: false

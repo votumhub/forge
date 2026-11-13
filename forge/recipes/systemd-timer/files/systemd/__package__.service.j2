@@ -1,0 +1,31 @@
+# Receita systemd-timer (orchestrator) - gerada por `forge init --recipe systemd-timer`.
+# Como conecta: unidade de USUÁRIO do systemd (sem root, sem User=); o forge ainda não tem
+#   adaptador systemd, então a instalação é à mão, uma vez por máquina:
+#     mkdir -p ~/.config/systemd/user
+#     cp systemd/[[ package ]].service systemd/[[ package ]].timer ~/.config/systemd/user/
+#     loginctl enable-linger "$USER"   # sem isso a unidade morre no logout
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now [[ package ]].timer
+#   Conferir: systemctl --user list-timers; journalctl --user -u [[ package ]].service
+# Variáveis: FORGE_DEPLOY_TARGET (Environment= abaixo) escolhe o alvo do forge.yaml; o
+#   resto do env (segredos inclusos) o `forge env` monta na hora, sem EnvironmentFile.
+# dev x prd: só instale o timer na máquina do alvo que agenda (prd); em dev rode o mesmo
+#   ExecStart à mão. O alvo muda só no Environment=FORGE_DEPLOY_TARGET.
+# Regras: nunca rode o pipeline como root (unidade de usuário resolve). TimeoutStartSec é
+#   obrigatório, porque timer do systemd não tem teto de execução próprio. O PATH de unidade
+#   de usuário não inclui ~/.local/bin, onde o uv costuma morar; por isso ele vem declarado.
+# Documentação: https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html (systemd 252)
+[Unit]
+Description=[[ name ]] pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=FORGE_DEPLOY_TARGET=prd
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Caminho do clone do repositório na máquina; ajuste se não for ~/[[ name ]].
+WorkingDirectory=%h/[[ name ]]
+# Troque `python -m [[ package ]]` pelo comando de entrada do pipeline.
+ExecStart=/usr/bin/env uv run python -m forge env -t ${FORGE_DEPLOY_TARGET} -- uv run python -m [[ package ]]
+TimeoutStartSec=3600

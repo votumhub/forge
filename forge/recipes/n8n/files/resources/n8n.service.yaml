@@ -1,0 +1,12 @@
+# Receita n8n (orchestrator) - serviço do forge para o n8n.
+# Como conecta: o forge sobe compose/n8n.yaml com -p <project> e --env-file do alvo e espera
+#   /healthz. Depois, o job n8n-apply (gatilho deploy after_up,
+#   resources/n8n-apply.job.yaml) aplica o workflow.
+# Variáveis: N8N_PORT (padrão 5678); o resto está no topo de compose/n8n.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.n8n.io/hosting/logging-monitoring/monitoring/
+compose:
+  - compose/n8n.yaml
+health:
+  url: http://localhost:${N8N_PORT:-5678}/healthz
+  timeout: 180

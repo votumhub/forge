@@ -1,0 +1,7 @@
+description: Apache Superset (web + banco de metadados Postgres) em compose, configurado só pelo env do alvo
+family: bi
+env: [SUPERSET_PORT, SUPERSET_SECRET_KEY, SUPERSET_DB_PASSWORD, SUPERSET_ADMIN_PASSWORD, SUPERSET_BASE_URL]
+docs:
+  url: https://superset.apache.org/docs/configuration/configuring-superset
+  version: "superset 6.1.0"
+provada: false

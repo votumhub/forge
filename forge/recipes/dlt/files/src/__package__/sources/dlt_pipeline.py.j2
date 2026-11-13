@@ -1,0 +1,63 @@
+# Receita dlt (ingestion) - gerada por `forge init --recipe dlt`.
+# Como conecta: dlt (pip install "dlt[duckdb,postgres]>=1.15,<2"); rode como job Prefect
+#   (resources/<job>.job.yaml com flow: src/[[ package ]]/sources/dlt_pipeline.py:run) ou direto:
+#   `python -m forge env -t dev -- python -m [[ package ]].sources.dlt_pipeline`.
+#   Troque `example_rows` pela leitura real (API, banco, arquivo).
+# Variáveis (env do alvo no forge.yaml): DLT_DESTINATION (duckdb, postgres...), DLT_DATASET,
+#   RUNTIME__DLTHUB_TELEMETRY (sempre "false") e a credencial do destino no formato do dlt:
+#   DESTINATION__POSTGRES__CREDENTIALS (secret://DESTINATION__POSTGRES__CREDENTIALS, uma URL
+#   postgresql://...) ou DESTINATION__DUCKDB__CREDENTIALS (caminho do arquivo .duckdb).
+#   Credencial de fonte segue SOURCES__<fonte>__<campo>.
+# dev x prd: em dev DLT_DESTINATION=duckdb com arquivo local; em prd postgres (ou outro) com a
+#   credencial como secret://. Tudo no env do alvo; o código é o mesmo.
+# Regras que custaram caro:
+# - Segredo chega só por variável de ambiente (SOURCES__... / DESTINATION__...__CREDENTIALS),
+#   nunca por .dlt/secrets.toml commitado.
+# - RUNTIME__DLTHUB_TELEMETRY=false em todo alvo: telemetria anônima é vazamento que ninguém
+#   autorizou. O módulo recusa rodar sem isso.
+# - Recurso com chave primária usa write_disposition="merge": append sem chave duplica cada
+#   linha a cada nova execução.
+# Documentação: https://dlthub.com/docs/general-usage/credentials/setup (dlt 1.15)
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from typing import Any
+
+import dlt
+
+
+def require_telemetry_off() -> None:
+    if os.environ.get("RUNTIME__DLTHUB_TELEMETRY", "").lower() != "false":
+        raise RuntimeError("defina RUNTIME__DLTHUB_TELEMETRY=false no env do alvo")
+
+
+@dlt.resource(primary_key="id", write_disposition="merge")
+def example_rows(
+    updated_at: dlt.sources.incremental[str] = dlt.sources.incremental(
+        "updated_at", initial_value="1970-01-01T00:00:00Z"
+    ),
+) -> Iterator[dict[str, Any]]:
+    rows = [
+        {"id": 1, "name": "a", "updated_at": "2026-01-01T00:00:00Z"},
+        {"id": 2, "name": "b", "updated_at": "2026-01-02T00:00:00Z"},
+    ]
+    yield from (row for row in rows if row["updated_at"] > updated_at.last_value)
+
+
+def pipeline() -> dlt.Pipeline:
+    return dlt.pipeline(
+        pipeline_name="[[ package ]]",
+        destination=os.environ["DLT_DESTINATION"],
+        dataset_name=os.environ["DLT_DATASET"],
+    )
+
+
+def run() -> str:
+    require_telemetry_off()
+    info = pipeline().run(example_rows())
+    return str(info)
+
+
+if __name__ == "__main__":
+    print(run())

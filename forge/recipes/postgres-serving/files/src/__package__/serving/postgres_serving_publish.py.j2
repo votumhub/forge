@@ -1,0 +1,71 @@
+# Receita postgres-serving (serving) - gerada por `forge init --recipe postgres-serving`.
+# Como conecta: psycopg 3 (pip install "psycopg[binary]>=3.3,<4") com a identidade que
+#   PUBLICA (dona dos schemas). O pipeline chama `prepare()`, carrega as tabelas em
+#   <schema>_next e chama `publish()`; `rollback()` desfaz a última publicação.
+# Variáveis (env do alvo no forge.yaml): POSTGRES_SERVING_WRITER_URL (segredo:
+#   secret://POSTGRES_SERVING_WRITER_URL), POSTGRES_SERVING_SCHEMA (padrão gold),
+#   POSTGRES_SERVING_READER_ROLE (padrão gold_reader: a role de quem lê, ex.: o BI).
+# dev x prd: o mesmo código; banco, schema e roles são os do alvo, só pelo env.
+# Regras que custaram caro:
+# - Publicar é construir em <schema>_next e trocar por ALTER SCHEMA RENAME, nunca DROP +
+#   CREATE: um schema dropado deixa o leitor sem gold pela largura de dois comandos.
+# - Os RENAME rodam numa transação só, fora de autocommit: DDL no Postgres só é atômica junto
+#   quando o driver não comita entre um comando e outro.
+# - O schema aposentado (<schema>_previous) sobrevive um ciclo: publicação errada tem volta
+#   instantânea em vez de restore de backup.
+# - A role leitora tem USAGE + SELECT e nenhum DDL; quem lê não é quem troca. Grant é por
+#   objeto: o schema novo recebe os grants ANTES da troca, senão o leitor perde acesso.
+# Documentação: https://www.postgresql.org/docs/current/sql-alterschema.html (psycopg 3.3)
+from __future__ import annotations
+
+import os
+
+import psycopg
+from psycopg import sql
+
+
+def serving_schema() -> str:
+    return os.environ.get("POSTGRES_SERVING_SCHEMA", "gold")
+
+
+def _schemas() -> tuple[sql.Identifier, sql.Identifier, sql.Identifier]:
+    name = serving_schema()
+    return sql.Identifier(name), sql.Identifier(f"{name}_next"), sql.Identifier(f"{name}_previous")
+
+
+def connect() -> psycopg.Connection:
+    return psycopg.connect(os.environ["POSTGRES_SERVING_WRITER_URL"], autocommit=False)
+
+
+def prepare(conn: psycopg.Connection) -> None:
+    """Recria <schema>_next vazio para a carga."""
+    _, staging, _ = _schemas()
+    with conn.transaction():
+        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(staging))
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(staging))
+
+
+def _grant_reader(conn: psycopg.Connection, schema: sql.Identifier) -> None:
+    reader = sql.Identifier(os.environ.get("POSTGRES_SERVING_READER_ROLE", "gold_reader"))
+    conn.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(schema, reader))
+    conn.execute(sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}").format(schema, reader))
+
+
+def publish(conn: psycopg.Connection) -> None:
+    """gold -> gold_previous e gold_next -> gold, numa transação."""
+    live, staging, retired = _schemas()
+    with conn.transaction():
+        _grant_reader(conn, staging)
+        conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(live))
+        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(retired))
+        conn.execute(sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(live, retired))
+        conn.execute(sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(staging, live))
+
+
+def rollback(conn: psycopg.Connection) -> None:
+    """Volta gold_previous para gold; a publicação ruim fica em gold_next para análise."""
+    live, staging, retired = _schemas()
+    with conn.transaction():
+        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(staging))
+        conn.execute(sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(live, staging))
+        conn.execute(sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(retired, live))

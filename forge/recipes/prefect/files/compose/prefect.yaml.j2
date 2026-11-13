@@ -1,0 +1,48 @@
+# Receita prefect (orchestrator) - gerada por `forge init --recipe prefect`.
+# Como conecta: `prefect-server` é a API/UI do Prefect 3; `prefect-worker` pega runs do work pool
+#   PREFECT_WORK_POOL e roda os flows como processo, lendo o envelope do alvo pelo
+#   ${FORGE_ENV_FILE}. O repositório é montado no mesmo caminho do host (${FORGE_ROOT}),
+#   então o prefect.yaml que o forge gera em .forge/build/<alvo>/ vale dentro do container.
+# Variáveis (env do alvo no forge.yaml): PREFECT_API_URL (para o CLI no host, ex.:
+#   http://localhost:4200/api), PREFECT_PORT (4200),
+#   PREFECT_BIND (padrão 127.0.0.1; 0.0.0.0 só atrás de autenticação), PREFECT_WORK_POOL (o mesmo nome usado em
+#   work_pool nos resources/<job>.job.yaml), PREFECT_EXTRA_PIP_PACKAGES (dependências dos
+#   flows, ex.: "-e ${FORGE_ROOT}" para instalar o próprio projeto).
+# dev x prd: o forge publica cada job como <job>-<alvo>; em dev a agenda nasce pausada. Mesmo
+#   compose nos dois alvos; muda só o env (porta, pool, host do docker).
+# Documentação: https://docs.prefect.io/v3/deploy/infrastructure-concepts/workers
+services:
+  prefect-server:
+    image: prefecthq/prefect:3-python[[ python ]]
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "${PREFECT_BIND:-127.0.0.1}:${PREFECT_PORT:-4200}:4200"
+    volumes:
+      - prefect-data:/root/.prefect
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')"]
+      interval: 10s
+      retries: 12
+      # o servidor migra o banco ao subir; numa VPS de 2 vCPU isso passou dos 120 s das 12
+      # tentativas e o worker (que espera service_healthy) não subiu. Falha dentro do
+      # start_period não conta tentativa.
+      start_period: 120s
+    restart: unless-stopped
+
+  prefect-worker:
+    image: prefecthq/prefect:3-python[[ python ]]
+    command: prefect worker start --pool ${PREFECT_WORK_POOL} --type process
+    env_file: ${FORGE_ENV_FILE}
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      EXTRA_PIP_PACKAGES: ${PREFECT_EXTRA_PIP_PACKAGES:-}
+    volumes:
+      - ${FORGE_ROOT}:${FORGE_ROOT}
+    working_dir: ${FORGE_ROOT}
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  prefect-data: {}

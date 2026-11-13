@@ -1,0 +1,53 @@
+# Receita soda-core (quality) - gerada por `forge init --recipe soda-core`.
+# Como conecta: soda-duckdb 4 (pip install "soda-duckdb>=4,<5"); módulo chamado por um job
+#   Prefect, por um hook ou à mão dentro do envelope:
+#   python -m forge env -t dev -- python -m [[ package ]].quality.soda_core_contracts
+# Variáveis (env do alvo no forge.yaml): DUCKDB_DATABASE (lido pelo data_source.yml),
+#   SODA_DATA_SOURCE (padrão soda-core/data_source.yml), SODA_CONTRACTS_DIR (padrão
+#   soda-core/contracts), SODA_LEVEL (warning ou error; padrão error).
+# dev x prd: dev usa SODA_LEVEL=warning (relata e segue), prd usa error (reprova o run). O
+#   padrão é error de propósito: um alvo que esqueceu o env falha alto em vez de passar mudo.
+# Regras: no Soda 4 `soda scan` é comando legado do v3 que imprime um aviso e sai sem rodar
+#   nenhuma checagem; use `soda contract verify` ou esta API. Contrato com zero checks passa
+#   verde sozinho, e pasta sem contrato também; os dois reprovam aqui.
+# Documentação: https://docs.soda.io/soda-v4/reference/contract-language-reference (soda-core 4.25)
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+from soda_core.contracts.api import verify_contract_locally
+
+
+def _contracts() -> list[Path]:
+    folder = Path(os.environ.get("SODA_CONTRACTS_DIR", "soda-core/contracts"))
+    found = sorted(folder.glob("*.yml"))
+    if not found:
+        raise FileNotFoundError(f"nenhum contrato *.yml em {folder}")
+    return found
+
+
+def verify(contract: Path, data_source: str) -> bool:
+    result = verify_contract_locally(
+        data_source_file_path=data_source, contract_file_path=str(contract)
+    )
+    if result.number_of_checks == 0:
+        print(f"{contract.name}: contrato sem nenhuma checagem")
+        return False
+    for error in result.get_errors():
+        print(f"{contract.name}: {error}")
+    print(f"{contract.name}: {result.number_of_checks_failed}/{result.number_of_checks} falharam")
+    return result.is_passed
+
+
+def run() -> int:
+    data_source = os.environ.get("SODA_DATA_SOURCE", "soda-core/data_source.yml")
+    failed = [c.name for c in _contracts() if not verify(c, data_source)]
+    if failed and os.environ.get("SODA_LEVEL", "error") == "error":
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())

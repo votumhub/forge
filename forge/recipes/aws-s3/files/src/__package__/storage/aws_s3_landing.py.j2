@@ -1,0 +1,123 @@
+# Receita aws-s3 (storage) - gerada por `forge init --recipe aws-s3`.
+# Como conecta: boto3 (pip install "boto3>=1.34") direto na API do S3; módulo importável e CLI
+#   com `bootstrap` (cria o bucket que falta e, se declarada, a expiração) e `health` (confere o
+#   acesso), o bootstrap roda no job resources/aws-s3-bootstrap.job.yaml.
+# Variáveis (env do alvo no forge.yaml): AWS_S3_BUCKET, AWS_REGION (padrão us-east-1),
+#   AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY (segredos: secret://AWS_ACCESS_KEY_ID e
+#   secret://AWS_SECRET_ACCESS_KEY). A chave pode ser escopada só ao bucket: o bootstrap confere
+#   o próprio bucket (head_bucket) e nunca lista a conta.
+# Expiração: desligada por padrão; nenhum objeto some sem ninguém pedir. Para expirar os
+#   objetos depois de N dias, declare AWS_S3_LIFECYCLE_DAYS: "N" no env do alvo e rode o deploy;
+#   o bootstrap grava a regra landing-expiry. Sem a variável, o bucket não ganha regra. Com a
+#   variável declarada, o bootstrap substitui as regras de ciclo de vida que o bucket já tem.
+# dev x prd: cada alvo tem o próprio bucket (ex.: [[ name ]]-dev e [[ name ]]-prd), tudo no env
+#   do alvo; nunca um bucket dividido entre alvos.
+# Layout: <tenant>/<dataset>/data=YYYY-MM-DD/ - o tenant vem antes do dataset (um tenant nunca
+#   lista o prefixo de outro) e a data usa `data=` para leitores de partição Hive.
+# Custo: todo byte lido de fora da AWS paga egress por GB; escolha S3 quando a carga já vive na
+#   AWS (fora dela, R2 não cobra egress).
+# Uso: `python -m forge env -t dev -- python -m [[ package ]].storage.aws_s3_landing bootstrap`
+# Documentação: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html (boto3 1.34)
+from __future__ import annotations
+
+import argparse
+import os
+from datetime import date
+from typing import Any
+
+import boto3
+from botocore.exceptions import ClientError
+
+MISSING = {"404", "NoSuchBucket", "NotFound"}
+FORBIDDEN = {"403", "AccessDenied", "Forbidden"}
+
+
+def bucket() -> str:
+    return os.environ["AWS_S3_BUCKET"]
+
+
+def region() -> str:
+    return os.environ.get("AWS_REGION", "us-east-1")
+
+
+def client() -> Any:
+    return boto3.client(
+        "s3",
+        region_name=region(),
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    )
+
+
+def landing_key(tenant: str, dataset: str, logical_date: date) -> str:
+    return f"{tenant}/{dataset}/data={logical_date:%Y-%m-%d}/"
+
+
+def create_bucket(s3: Any) -> None:
+    if region() == "us-east-1":
+        s3.create_bucket(Bucket=bucket())
+        return
+    s3.create_bucket(
+        Bucket=bucket(), CreateBucketConfiguration={"LocationConstraint": region()}
+    )
+
+
+def ensure_bucket(s3: Any) -> None:
+    try:
+        s3.head_bucket(Bucket=bucket())
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        if code in MISSING:
+            create_bucket(s3)
+            return
+        if code in FORBIDDEN:
+            raise SystemExit(
+                f"bucket {bucket()}: a chave AWS_ACCESS_KEY_ID não tem permissão nele "
+                f"(código {code}); confira no console da AWS (IAM) se a política da chave "
+                f"alcança esse bucket com leitura e escrita, e se AWS_S3_BUCKET está certo "
+                f"no env do alvo"
+            ) from error
+        raise
+
+
+def lifecycle_days() -> int | None:
+    declared = os.environ.get("AWS_S3_LIFECYCLE_DAYS", "").strip()
+    if not declared:
+        return None
+    if not declared.isdigit() or int(declared) < 1:
+        raise SystemExit(
+            f"AWS_S3_LIFECYCLE_DAYS={declared!r}: use um número inteiro de dias (1 ou mais) "
+            f"no env do alvo, ou remova a variável para não expirar nada"
+        )
+    return int(declared)
+
+
+def bootstrap() -> None:
+    s3 = client()
+    ensure_bucket(s3)
+    days = lifecycle_days()
+    if days is None:
+        return
+    rule = {
+        "ID": "landing-expiry",
+        "Status": "Enabled",
+        "Filter": {"Prefix": ""},
+        "Expiration": {"Days": days},
+    }
+    s3.put_bucket_lifecycle_configuration(
+        Bucket=bucket(), LifecycleConfiguration={"Rules": [rule]}
+    )
+
+
+def health() -> None:
+    client().head_bucket(Bucket=bucket())
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health"])
+    {"bootstrap": bootstrap, "health": health}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,7 @@
+description: Debezium Server em compose capturando mudanças (CDC) de um banco e publicando no Kafka do projeto
+family: ingestion
+env: [DEBEZIUM_PORT, DEBEZIUM_SOURCE_CONNECTOR_CLASS, DEBEZIUM_SOURCE_TOPIC_PREFIX, DEBEZIUM_SOURCE_DATABASE_HOSTNAME, DEBEZIUM_SOURCE_DATABASE_PORT, DEBEZIUM_SOURCE_DATABASE_DBNAME, DEBEZIUM_SOURCE_DATABASE_USER, DEBEZIUM_SOURCE_DATABASE_PASSWORD, DEBEZIUM_SOURCE_SNAPSHOT_MODE, DEBEZIUM_SINK_KAFKA_PRODUCER_BOOTSTRAP_SERVERS]
+docs:
+  url: https://debezium.io/documentation/reference/stable/operations/debezium-server.html
+  version: "debezium 3.6"
+provada: false

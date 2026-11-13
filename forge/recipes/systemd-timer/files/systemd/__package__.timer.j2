@@ -1,0 +1,20 @@
+# Receita systemd-timer (orchestrator) - agenda do [[ package ]].service (mesmo nome base).
+# Como conecta: ativa systemd/[[ package ]].service; instale os dois juntos em
+#   ~/.config/systemd/user/ (passo a passo no topo do .service) e ligue com
+#   systemctl --user enable --now [[ package ]].timer
+# Variáveis: nenhuma; o alvo vem do Environment= do .service.
+# dev x prd: o timer só é ligado na máquina que agenda (prd); em dev não instale.
+# Regras: Persistent=true faz a máquina que estava desligada na hora marcada rodar ao
+#   voltar; RandomizedDelaySec espalha a partida para não bater com outros timers.
+#   Teste a expressão com: systemd-analyze calendar "*-*-* 03:00:00"
+# Documentação: https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html (systemd 252)
+[Unit]
+Description=[[ name ]] agenda do pipeline
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

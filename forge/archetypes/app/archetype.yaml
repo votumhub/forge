@@ -1,0 +1,8 @@
+description: serviço HTTP em container (docker compose), com imagem construída em dev e puxada em prd
+questions:
+  registry:
+    prompt: registry de onde prd puxa a imagem
+    default: ghcr.io/example
+  app_port:
+    prompt: porta do serviço no host
+    default: "8000"

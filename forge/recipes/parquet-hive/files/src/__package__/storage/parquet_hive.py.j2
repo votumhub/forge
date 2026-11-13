@@ -1,0 +1,59 @@
+# Receita parquet-hive (table_format) - gerada por `forge init --recipe parquet-hive`.
+# Como conecta: pyarrow (pip install "pyarrow>=17") com S3FileSystem sobre qualquer storage
+#   com API S3 (receitas cloudflare-r2 ou minio); módulo chamado pelo pipeline.
+# Variáveis (env do alvo no forge.yaml): LAKE_BUCKET, AWS_ACCESS_KEY_ID e
+#   AWS_SECRET_ACCESS_KEY (segredos: secret://AWS_ACCESS_KEY_ID, secret://AWS_SECRET_ACCESS_KEY),
+#   AWS_ENDPOINT_URL (R2/MinIO; vazio = AWS), AWS_REGION (R2: auto; MinIO: us-east-1).
+# dev x prd: o bucket e o endpoint de cada alvo vêm do env; o layout é o mesmo nos dois.
+# Regras que custaram caro:
+# - Só storage S3: sistema de arquivos local não é suportado por este writer.
+# - Toda escrita particiona pela coluna `data` (YYYY-MM-DD) em estilo Hive, então o layout
+#   físico é .../data=YYYY-MM-DD/..., o que todo leitor Hive (DuckDB, Polars, Spark) entende.
+# - Rerun da mesma data substitui a partição em vez de duplicar linhas. `overwrite_or_ignore`
+#   só sobrescreve arquivos de mesmo nome (sobra parte velha se o rerun gerar menos arquivos);
+#   por isso aqui é `delete_matching`, que apaga a partição escrita antes de gravar.
+# Documentação: https://arrow.apache.org/docs/python/dataset.html (pyarrow 17)
+from __future__ import annotations
+
+import os
+from datetime import date
+
+import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.fs as pafs
+
+PARTITIONING = ds.partitioning(pa.schema([("data", pa.string())]), flavor="hive")
+
+
+def filesystem() -> pafs.S3FileSystem:
+    raw_endpoint = os.environ.get("AWS_ENDPOINT_URL", "")
+    scheme = "http" if raw_endpoint.startswith("http://") else "https"
+    endpoint = raw_endpoint.removeprefix("https://").removeprefix("http://") or None
+    return pafs.S3FileSystem(
+        access_key=os.environ["AWS_ACCESS_KEY_ID"],
+        secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+        endpoint_override=endpoint,
+        scheme=scheme,
+        region=os.environ.get("AWS_REGION", "us-east-1"),
+    )
+
+
+def table_uri(tenant: str, layer: str, table: str) -> str:
+    return f"{os.environ['LAKE_BUCKET']}/{tenant}/{layer}/{table}"
+
+
+def write(table: pa.Table, uri: str, logical_date: date) -> None:
+    stamped = table.append_column("data", pa.array([logical_date.isoformat()] * table.num_rows))
+    ds.write_dataset(
+        stamped,
+        base_dir=uri,
+        filesystem=filesystem(),
+        format="parquet",
+        partitioning=PARTITIONING,
+        existing_data_behavior="delete_matching",
+    )
+
+
+def read(uri: str) -> pa.Table:
+    dataset = ds.dataset(uri, filesystem=filesystem(), format="parquet", partitioning="hive")
+    return dataset.to_table()

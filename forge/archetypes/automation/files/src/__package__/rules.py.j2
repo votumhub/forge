@@ -1,0 +1,14 @@
+"""Regra da automação [[ name ]]: função pura, testável sem Prefect e sem rede."""
+
+from __future__ import annotations
+
+
+def decide(pending: list[str], limit: int = 50) -> list[str]:
+    """Escolhe o que tratar nesta rodada: sem repetidos, na ordem, no máximo `limit`."""
+    seen: set[str] = set()
+    chosen: list[str] = []
+    for item in pending:
+        if item not in seen:
+            seen.add(item)
+            chosen.append(item)
+    return chosen[:limit]

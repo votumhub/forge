@@ -1,0 +1,7 @@
+description: projeto dbt sobre DuckDB, com o alvo do dbt escolhido pelo FORGE_TARGET e nada literal no profile
+family: transform
+env: [DUCKDB_DATABASE, DBT_SCHEMA, DBT_THREADS, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL]
+docs:
+  url: https://docs.getdbt.com/docs/core/connect-data-platform/duckdb-setup
+  version: "dbt-core 1.8 / dbt-duckdb 1.8"
+provada: true

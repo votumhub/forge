@@ -1,0 +1,86 @@
+# Receita iceberg (table_format) - gerada por `forge init --recipe iceberg`.
+# Como conecta: PyIceberg (pip install "pyiceberg[sql-sqlite,pyarrow]>=0.7"; para S3/R2 também
+#   s3fs ou o FileIO pyarrow já incluso). `catalog(tenant)` abre o SqlCatalog do tenant e
+#   `write(...)` acrescenta um pyarrow.Table carimbado com a coluna de partição `data`.
+#   Gancho de saúde: `python -m [[ package ]].storage.iceberg_table_format health`.
+# Variáveis (env do alvo no forge.yaml): ICEBERG_CATALOG_DIR (pasta dos catálogos SQLite, um
+#   <tenant>.db por tenant, ex.: data/catalog), ICEBERG_WAREHOUSE (ex.: caminho absoluto
+#   /srv/data/warehouse em dev ou s3://<bucket> em prd; no Windows, file:// quebra no PyArrow); para S3/R2: AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY
+#   (segredos: secret://NOME), AWS_ENDPOINT_URL (R2/MinIO) e AWS_REGION (R2 usa "auto").
+# dev x prd: dev costuma usar warehouse em disco; prd o bucket do alvo. Só o env muda.
+# Regras:
+#   - um SqlCatalog por tenant, com arquivo e prefixo de warehouse próprios: dois tenants nunca
+#     dividem um catálogo Iceberg.
+#   - a tabela nasce particionada por identidade na coluna `data` (YYYY-MM-DD); sem isso toda
+#     consulta de um dia varre a tabela inteira.
+#   - SqlCatalog em SQLite não aceita escritores concorrentes: serve para um ingestor numa
+#     máquina; antes do segundo escritor, troque a uri por um Postgres.
+# Documentação: https://py.iceberg.apache.org/api/ (pyiceberg 0.7)
+from __future__ import annotations
+
+import argparse
+import os
+from datetime import date
+from pathlib import Path
+
+import pyarrow as pa
+from pyiceberg.catalog import Catalog, load_catalog
+
+PARTITION_COLUMN = "data"
+
+
+def catalog(tenant: str) -> Catalog:
+    catalog_dir = Path(os.environ["ICEBERG_CATALOG_DIR"])
+    catalog_dir.mkdir(parents=True, exist_ok=True)
+    warehouse = f"{os.environ['ICEBERG_WAREHOUSE'].rstrip('/')}/{tenant}"
+    return load_catalog(
+        tenant,
+        type="sql",
+        uri=f"sqlite:///{(catalog_dir / f'{tenant}.db').as_posix()}",
+        warehouse=warehouse,
+        **_s3_properties(),
+    )
+
+
+def _s3_properties() -> dict[str, str]:
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if key_id is None or secret is None:
+        return {}
+    properties = {"s3.access-key-id": key_id, "s3.secret-access-key": secret}
+    if endpoint := os.environ.get("AWS_ENDPOINT_URL"):
+        properties["s3.endpoint"] = endpoint
+    if region := os.environ.get("AWS_REGION"):
+        properties["s3.region"] = region
+    return properties
+
+
+def write(cat: Catalog, namespace: str, table: str, data: pa.Table, logical_date: date) -> None:
+    column = pa.array([logical_date.isoformat()] * data.num_rows)
+    stamped = data.append_column(PARTITION_COLUMN, column)
+    identifier = f"{namespace}.{table}"
+    if not cat.table_exists(identifier):
+        _create(cat, namespace, identifier, stamped.schema)
+    cat.load_table(identifier).append(stamped)
+
+
+def _create(cat: Catalog, namespace: str, identifier: str, schema: pa.Schema) -> None:
+    cat.create_namespace_if_not_exists(namespace)
+    created = cat.create_table(identifier, schema=schema)
+    with created.update_spec() as spec:
+        spec.add_identity(PARTITION_COLUMN)
+
+
+def health() -> None:
+    catalog("health").list_namespaces()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["health"])
+    parser.parse_args()
+    health()
+
+
+if __name__ == "__main__":
+    main()

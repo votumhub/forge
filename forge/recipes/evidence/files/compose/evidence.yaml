@@ -1,0 +1,26 @@
+# Receita evidence (bi) - gerada por `forge init --recipe evidence`.
+# Como conecta: imagem oficial evidencedev/serve (roda o projeto de evidence/ montado em
+#   /project); o forge sobe com -p <project> e --env-file do alvo e recria `evidence` a cada
+#   release (resources/evidence.service.yaml). Nada de npm no host.
+# Variáveis (env do alvo no forge.yaml): EVIDENCE_IMAGE_TAG (versão explícita, nunca latest),
+#   EVIDENCE_PORT (padrão 3000, publicada só em 127.0.0.1), EVIDENCE_BASIC_USER e
+#   EVIDENCE_BASIC_PASSWORD (segredos: secret://NOME), EVIDENCE_AUTH_DISABLED (opcional) e as
+#   EVIDENCE_PG_* lidas por evidence/connection.yaml.
+# dev x prd: mesmo compose; o alvo muda tag, porta, banco e credenciais pelo env.
+# Regras:
+#   - o servidor não tem login próprio: mantenha EVIDENCE_BASIC_USER/PASSWORD definidos e só use
+#     EVIDENCE_AUTH_DISABLED=true quando a porta só é alcançável pela rede privada.
+#   - tag fixada: as queries rodam ao vivo a cada página aberta e uma atualização não planejada
+#     troca o runtime debaixo de um painel que alguém está lendo.
+# Documentação: https://docs.evidence.dev/self-host
+services:
+  evidence:
+    image: evidencedev/serve:${EVIDENCE_IMAGE_TAG:?fixe a tag do evidencedev/serve}
+    env_file: ${FORGE_ENV_FILE}
+    ports:
+      - "127.0.0.1:${EVIDENCE_PORT:-3000}:3000"
+    # A documentação oficial copia o projeto para /project (Dockerfile com COPY); aqui ele é
+    # montado. Se o serve precisar gravar cache em /project, a montagem já é gravável.
+    volumes:
+      - ${FORGE_ROOT}/evidence:/project
+    restart: unless-stopped

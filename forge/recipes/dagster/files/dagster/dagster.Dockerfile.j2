@@ -1,0 +1,13 @@
+# Receita dagster (orchestrator) - gerada por `forge init --recipe dagster`.
+# Como conecta: imagem [[ name ]]-dagster:local usada por webserver e daemon em
+#   compose/dagster.yaml; só dependências - o código vem montado de /opt/project/src.
+#   Dependências do próprio projeto que os assets importam entram no pip install abaixo.
+# Variáveis (env do alvo no forge.yaml): nenhuma na construção; tudo chega em runtime pelo
+#   env_file do compose.
+# dev x prd: a mesma imagem nos dois alvos.
+# Documentação: https://docs.dagster.io/deployment/oss/deployment-options/docker (dagster 1.8)
+FROM python:[[ python ]]-slim
+RUN pip install --no-cache-dir "dagster>=1.8,<2" "dagster-webserver>=1.8,<2" "dagster-postgres"
+ENV DAGSTER_HOME=/opt/dagster/home PYTHONPATH=/opt/project/src PYTHONUNBUFFERED=1
+RUN mkdir -p /opt/dagster/home
+WORKDIR /opt/project

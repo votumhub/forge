@@ -1,0 +1,12 @@
+# Receita n8n - job de gatilho deploy: cria/atualiza pela API o workflow do alvo e o publica ou desliga.
+# Como conecta: o forge roda a task abaixo no momento after_up de todo deploy, no executor
+#   local, com o envelope do alvo; falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://docs.n8n.io/api/api-reference/ (n8n 2.40.5)
+trigger:
+  deploy:
+    when: after_up
+tasks:
+  - key: apply
+    run: [python, -m, [[ package ]].orchestration.n8n_apply]

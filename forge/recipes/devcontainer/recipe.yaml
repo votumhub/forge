@@ -1,0 +1,7 @@
+description: devcontainer com o Python do projeto e as dependências instaladas pelo uv a partir do lock
+family: devenv
+env: []
+docs:
+  url: https://containers.dev/implementors/json_reference/
+  version: "Dev Container Specification"
+provada: false

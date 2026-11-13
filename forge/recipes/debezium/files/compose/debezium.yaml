@@ -1,0 +1,23 @@
+# Receita debezium (ingestion) - gerada por `forge init --recipe debezium`.
+# Como conecta: imagem quay.io/debezium/server:3.6 (Debezium Server, sem Kafka Connect); lê
+#   debezium/debezium-application.properties e recebe do envelope do alvo (${FORGE_ENV_FILE})
+#   as variáveis DEBEZIUM_* que completam a configuração. Publica no Kafka do projeto.
+# Variáveis (env do alvo no forge.yaml): DEBEZIUM_PORT (8080 no host, para /q/health) e as
+#   DEBEZIUM_SOURCE_* / DEBEZIUM_SINK_* listadas no topo do arquivo de properties; a senha é
+#   secret://DEBEZIUM_SOURCE_DATABASE_PASSWORD.
+# dev x prd: mesmo compose; banco, prefixo, snapshot e brokers mudam só no env do alvo. Offsets
+#   ficam no volume do projeto compose de cada alvo.
+# Documentação: https://debezium.io/documentation/reference/stable/operations/debezium-server.html (debezium 3.6)
+services:
+  debezium:
+    image: quay.io/debezium/server:3.6
+    env_file: ${FORGE_ENV_FILE}
+    ports:
+      - "${DEBEZIUM_PORT:-8080}:8080"
+    volumes:
+      - ${FORGE_ROOT}/debezium/debezium-application.properties:/debezium/config/application.properties:ro
+      - debezium-data:/debezium/data
+    restart: unless-stopped
+
+volumes:
+  debezium-data: {}

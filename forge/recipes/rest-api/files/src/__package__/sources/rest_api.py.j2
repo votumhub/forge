@@ -1,0 +1,67 @@
+# Receita rest-api (source) - gerada por `forge init --recipe rest-api`.
+# Como conecta: httpx (pip install "httpx>=0.28,<1"); módulo chamado por um job Prefect ou
+#   pelo app. `read_pages("/orders")` devolve registro a registro, página a página.
+# Variáveis (env do alvo no forge.yaml): REST_API_BASE_URL (ex.: https://api.exemplo.com/v1),
+#   REST_API_TOKEN (segredo: secret://REST_API_TOKEN, vai no Authorization: Bearer),
+#   REST_API_PAGE_SIZE (padrão 100), REST_API_TIMEOUT (segundos, padrão 30),
+#   REST_API_MAX_RETRIES (padrão 5).
+# dev x prd: REST_API_BASE_URL é por alvo, e dev nunca aponta para o host de produção
+#   (sandbox do fornecedor ou mock); o token também é outro. Tudo pelo env do alvo.
+# Regras: paginação e retry no 429 são explícitos, porque "sem plano" é o que faz a chave ser
+#   estrangulada ou banida. A paginação abaixo é page/per_page com parada em página vazia;
+#   ajuste _page_params e _records ao formato da API (cursor, next link, offset).
+# Documentação: https://www.python-httpx.org/advanced/clients/ (httpx 0.28)
+from __future__ import annotations
+
+import os
+import time
+from collections.abc import Iterator
+from typing import Any
+
+import httpx
+
+RETRY_STATUS = {429, 502, 503, 504}
+
+
+def client() -> httpx.Client:
+    return httpx.Client(
+        base_url=os.environ["REST_API_BASE_URL"],
+        headers={"Authorization": f"Bearer {os.environ['REST_API_TOKEN']}"},
+        timeout=float(os.environ.get("REST_API_TIMEOUT", "30")),
+    )
+
+
+def _wait_seconds(response: httpx.Response, attempt: int) -> float:
+    header = response.headers.get("Retry-After", "")
+    return float(header) if header.isdigit() else min(2.0**attempt, 60.0)
+
+
+def get_json(http: httpx.Client, path: str, params: dict[str, Any]) -> Any:
+    """GET com espera no 429/5xx (respeita Retry-After); esgotou as tentativas, levanta."""
+    retries = int(os.environ.get("REST_API_MAX_RETRIES", "5"))
+    for attempt in range(retries + 1):
+        response = http.get(path, params=params)
+        if response.status_code not in RETRY_STATUS or attempt == retries:
+            response.raise_for_status()
+            return response.json()
+        time.sleep(_wait_seconds(response, attempt))
+    raise RuntimeError("inalcançável: o laço sempre devolve ou levanta")
+
+
+def _page_params(page: int) -> dict[str, Any]:
+    return {"page": page, "per_page": int(os.environ.get("REST_API_PAGE_SIZE", "100"))}
+
+
+def _records(body: Any) -> list[dict[str, Any]]:
+    return body if isinstance(body, list) else body["data"]
+
+
+def read_pages(path: str, params: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    with client() as http:
+        page = 1
+        while True:
+            records = _records(get_json(http, path, {**(params or {}), **_page_params(page)}))
+            if not records:
+                return
+            yield from records
+            page += 1

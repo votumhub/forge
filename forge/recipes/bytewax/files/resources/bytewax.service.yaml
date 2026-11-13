@@ -1,0 +1,16 @@
+# Receita bytewax (stream) - serviço do forge para o dataflow Bytewax.
+# Como conecta: o forge sobe compose/bytewax.yaml com -p <project> e --env-file do alvo e recria
+#   o container a cada release (código e env novos); o recovery sobrevive no volume.
+# Variáveis (env do alvo no forge.yaml): BYTEWAX_BROKERS, BYTEWAX_INPUT_TOPIC,
+#   BYTEWAX_OUTPUT_TOPIC; detalhes no topo de compose/bytewax.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo. Sem porta HTTP: a saúde é o
+#   healthcheck do compose (o PID 1 do container é o `bytewax.run`).
+# Documentação: https://docs.bytewax.io/stable/guide/concepts/recovery.html (bytewax 0.21)
+compose:
+  - compose/bytewax.yaml
+release_services:
+  - bytewax
+health:
+  healthy:
+    - bytewax
+  timeout: 300

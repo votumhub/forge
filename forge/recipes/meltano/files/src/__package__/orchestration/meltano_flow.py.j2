@@ -1,0 +1,43 @@
+# Receita meltano (ingestion) - gerada por `forge init --recipe meltano`.
+# Como conecta: flow Prefect 3 que chama o CLI do meltano 3 (pip install "meltano>=3,<4")
+#   no projeto meltano/; publicado pelo forge a partir de resources/meltano.job.yaml.
+# Variáveis (env do alvo no forge.yaml): MELTANO_PROJECT_ROOT (padrão meltano),
+#   MELTANO_STATE_BACKEND_URI (obrigatória fora de dev), TAP_POSTGRES_SQLALCHEMY_URL
+#   (secret://TAP_POSTGRES_SQLALCHEMY_URL), TARGET_DUCKDB_FILEPATH; FORGE_TARGET vem do forge
+#   e vira o --environment do Meltano.
+# dev x prd: o mesmo flow; o que muda (estado, origem, destino) é só o env do alvo.
+# `meltano install` a cada run é lento mas idempotente; quando pesar, mova para o build da
+#   imagem do worker.
+# Documentação: https://docs.meltano.com/reference/command-line-interface (meltano 3)
+from __future__ import annotations
+
+import os
+import subprocess
+
+from prefect import flow
+
+
+def _environment() -> str:
+    target = os.environ.get("FORGE_TARGET", "dev")
+    if target != "dev" and not os.environ.get("MELTANO_STATE_BACKEND_URI"):
+        raise RuntimeError(
+            f"alvo {target} sem MELTANO_STATE_BACKEND_URI: o estado incremental morreria no redeploy"
+        )
+    return target
+
+
+def _meltano(*args: str) -> None:
+    env = {**os.environ, "MELTANO_SEND_ANONYMOUS_USAGE_STATS": "false"}
+    subprocess.run(
+        ["meltano", *args],
+        cwd=os.environ.get("MELTANO_PROJECT_ROOT", "meltano"),
+        env=env,
+        check=True,
+    )
+
+
+@flow(name="meltano-el")
+def meltano_el(extractor: str = "tap-postgres", loader: str = "target-duckdb") -> None:
+    environment = _environment()
+    _meltano("--environment", environment, "install")
+    _meltano("--environment", environment, "run", extractor, loader)

@@ -1,0 +1,8 @@
+description: tabelas Delta (delta-rs) sobre S3/R2/MinIO, particionadas por data e com escrita segura sem locking externo
+family: table_format
+env: [DELTA_LAKE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_REGION]
+requires: ["deltalake>=0.20", "pyarrow"]
+docs:
+  url: https://delta-io.github.io/delta-rs/usage/writing/writing-to-s3-with-locking-provider/
+  version: "deltalake 0.20"
+provada: false

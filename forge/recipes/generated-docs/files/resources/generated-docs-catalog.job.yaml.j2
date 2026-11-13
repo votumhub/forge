@@ -1,0 +1,12 @@
+# Receita generated-docs - job de gatilho deploy: regera o catálogo a partir de resources/.
+# Como conecta: o forge roda a task abaixo no momento before_deploy de todo deploy, no executor
+#   local, com o envelope do alvo público (sem segredo); falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://pyyaml.org/wiki/PyYAMLDocumentation (pyyaml 6.0)
+trigger:
+  deploy:
+    when: before_deploy
+tasks:
+  - key: catalog
+    run: [python, -m, [[ package ]].docs.generated_docs_catalog]

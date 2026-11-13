@@ -1,0 +1,31 @@
+# Receita nats (bus) - gerada por `forge init --recipe nats`.
+# Como conecta: nats-py (pip install "nats-py>=2.9") com o token do alvo; garante o stream
+#   JetStream e publica com confirmação (a mensagem só conta quando o servidor gravou).
+# Variáveis (env do alvo no forge.yaml): NATS_URL (ex.: nats://localhost:4222),
+#   NATS_AUTH_TOKEN (segredo: secret://NATS_AUTH_TOKEN).
+# dev x prd: o mesmo código; URL e token são os do alvo. Prefixe o stream com o FORGE_TARGET
+#   se dev e prd dividirem um servidor (o padrão é cada alvo ter o seu).
+# Documentação: https://nats-io.github.io/nats.py/ (nats-py 2.x)
+from __future__ import annotations
+
+import os
+
+import nats
+from nats.aio.client import Client
+from nats.js.api import PubAck
+
+
+async def connect() -> Client:
+    return await nats.connect(
+        servers=os.environ["NATS_URL"], token=os.environ["NATS_AUTH_TOKEN"]
+    )
+
+
+async def publish(stream: str, subject: str, payload: bytes) -> PubAck:
+    """Cria o stream `stream` cobrindo `<stream>.>` se faltar e publica com ack do JetStream."""
+    nc = await connect()
+    js = nc.jetstream()
+    await js.add_stream(name=stream, subjects=[f"{stream}.>"])
+    ack = await js.publish(f"{stream}.{subject}", payload)
+    await nc.drain()
+    return ack

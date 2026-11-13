@@ -1,0 +1,92 @@
+# Receita clickhouse (serving) - gerada por `forge init --recipe clickhouse`.
+# Como conecta: clickhouse-connect (pip install "clickhouse-connect>=0.8,<1") pela porta HTTP;
+#   `publish()` é chamado pelo job que produz a camada servida; CLI `health` e `backup` servem
+#   de gancho e de rotina.
+# Variáveis (env do alvo no forge.yaml): CLICKHOUSE_HOST, CLICKHOUSE_HTTP_PORT (padrão 8123),
+#   CLICKHOUSE_USER, CLICKHOUSE_PASSWORD (secret://CLICKHOUSE_PASSWORD), CLICKHOUSE_DATABASE e
+#   CLICKHOUSE_SECURE ("true" quando o servidor está atrás de TLS).
+# dev x prd: host, base e credencial de cada alvo vêm do env do alvo; o código é o mesmo.
+# Regras que custaram caro:
+# - Publicar = montar <tabela>_next e trocar com EXCHANGE TABLES, nunca DROP + CREATE: é a única
+#   troca instantânea e sem lock, e só existe no engine Atomic (dois RENAME deixam uma janela
+#   sem tabela). Por isso a base é criada com ENGINE = Atomic.
+# - Logo depois do EXCHANGE, TRUNCATE na staging: ela fica com os dados antigos e o próximo
+#   publish dobraria o disco em silêncio.
+# Uso: `python -m forge env -t dev -- python -m [[ package ]].serving.clickhouse_publish health`
+# Documentação: https://clickhouse.com/docs/sql-reference/statements/exchange (clickhouse-connect 0.8)
+from __future__ import annotations
+
+import argparse
+import os
+import re
+from collections.abc import Sequence
+from datetime import datetime, timezone
+from typing import Any
+
+import clickhouse_connect
+from clickhouse_connect.driver.client import Client
+
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def quoted(name: str) -> str:
+    if not IDENTIFIER.match(name):
+        raise ValueError(f"identificador inválido: {name!r}")
+    return f"`{name}`"
+
+
+def database() -> str:
+    return quoted(os.environ["CLICKHOUSE_DATABASE"])
+
+
+def client() -> Client:
+    return clickhouse_connect.get_client(
+        host=os.environ["CLICKHOUSE_HOST"],
+        port=int(os.environ.get("CLICKHOUSE_HTTP_PORT", "8123")),
+        username=os.environ["CLICKHOUSE_USER"],
+        password=os.environ["CLICKHOUSE_PASSWORD"],
+        secure=os.environ.get("CLICKHOUSE_SECURE", "false").lower() == "true",
+    )
+
+
+def ensure_database(ch: Client) -> None:
+    ch.command(f"CREATE DATABASE IF NOT EXISTS {database()} ENGINE = Atomic")
+
+
+def publish(
+    ch: Client, table: str, rows: Sequence[Sequence[Any]], column_names: Sequence[str]
+) -> None:
+    """Troca o conteúdo servido de `table` (que já deve existir) por `rows`, de uma vez."""
+    served = f"{database()}.{quoted(table)}"
+    staging = f"{database()}.{quoted(table + '_next')}"
+    ch.command(f"CREATE TABLE IF NOT EXISTS {staging} AS {served}")
+    ch.command(f"TRUNCATE TABLE {staging}")
+    ch.insert(
+        f"{table}_next",
+        rows,
+        column_names=list(column_names),
+        database=os.environ["CLICKHOUSE_DATABASE"],
+    )
+    ch.command(f"EXCHANGE TABLES {staging} AND {served}")
+    ch.command(f"TRUNCATE TABLE {staging}")
+
+
+def backup(ch: Client) -> str:
+    name = f"{os.environ['CLICKHOUSE_DATABASE']}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.zip"
+    ch.command(f"BACKUP DATABASE {database()} TO Disk('backups', '{name}')")
+    return name
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["health", "backup"])
+    ch = client()
+    if parser.parse_args().action == "health":
+        ensure_database(ch)
+        print(ch.command("SELECT 1"))
+        return
+    print(backup(ch))
+
+
+if __name__ == "__main__":
+    main()

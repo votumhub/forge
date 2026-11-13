@@ -1,0 +1,12 @@
+# Receita redpanda-schema-registry - job de gatilho deploy: fixa a compatibilidade e registra os schemas.
+# Como conecta: o forge roda a task abaixo no momento after_up de todo deploy, no executor
+#   local, com o envelope do alvo; falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://docs.redpanda.com/current/manage/schema-reg/schema-reg-api/ (Redpanda Schema Registry API (httpx 0.27))
+trigger:
+  deploy:
+    when: after_up
+tasks:
+  - key: bootstrap
+    run: [python, -m, [[ package ]].streaming.redpanda_schema_registry, bootstrap]

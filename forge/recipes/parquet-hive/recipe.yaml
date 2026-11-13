@@ -1,0 +1,8 @@
+description: grava e lê tabelas Parquet em S3/R2/MinIO com partição Hive data=YYYY-MM-DD e rerun que substitui a partição
+family: table_format
+env: [LAKE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_REGION]
+requires: ["pyarrow>=17"]
+docs:
+  url: https://arrow.apache.org/docs/python/dataset.html
+  version: "pyarrow 17"
+provada: false

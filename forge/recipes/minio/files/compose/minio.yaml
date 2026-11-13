@@ -1,0 +1,33 @@
+# Receita minio (storage) - gerada por `forge init --recipe minio`.
+# Como conecta: servidor MinIO (API S3 em :9000, console em :9001) com os dados num volume
+#   nomeado; o código fala com ele por src/<pacote>/storage/minio_landing.py (boto3).
+# Versão fixada: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z, a última imagem da edição
+#   comunitária (tag latest no quay.io em 2026-09-23; o minio/minio do Docker Hub não existe mais).
+# Variáveis (env do alvo no forge.yaml): MINIO_PORT (9000), MINIO_CONSOLE_PORT (9001), MINIO_ROOT_USER e MINIO_ROOT_PASSWORD
+#   (segredos: secret://MINIO_ROOT_USER, secret://MINIO_ROOT_PASSWORD).
+# dev x prd: mesmo arquivo; em prd as credenciais são outras e o app usa uma chave de serviço
+#   (AWS_ACCESS_KEY_ID) criada no MinIO, não o root. A diferença mora só no env do alvo.
+# O MinIO não replica sozinho: em prd o disco do volume minio-data entra no backup, ou uma
+#   falha do host leva o lago junto. A edição comunitária deixou de publicar imagens em 2025:
+#   correção de segurança não chega mais por imagem nova.
+# Documentação: https://github.com/minio/minio
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      retries: 12
+
+volumes:
+  minio-data: {}

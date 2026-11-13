@@ -1,0 +1,42 @@
+# Receita bytewax (stream) - gerada por `forge init --recipe bytewax`.
+# Como conecta: container python:[[ python ]]-slim que instala "bytewax[kafka]>=0.21,<1", monta o
+#   repositório em /opt/project (src/ no PYTHONPATH) e roda o dataflow
+#   [[ package ]].streaming.bytewax_dataflow:flow lendo o envelope do alvo por ${FORGE_ENV_FILE}.
+# Variáveis (env do alvo no forge.yaml): BYTEWAX_BROKERS, BYTEWAX_INPUT_TOPIC e
+#   BYTEWAX_OUTPUT_TOPIC (descritas no módulo do dataflow).
+# dev x prd: mesmo compose; brokers e tópicos mudam só no env do alvo. O volume de recovery é
+#   por projeto compose, então cada alvo retoma do próprio estado.
+# Regras que custaram caro:
+# - Sempre com -r e diretório de recovery inicializado (python -m bytewax.recovery <dir> 1):
+#   dataflow reiniciado sem recovery reprocessa o stream desde o começo. Com -r, -s (snapshot)
+#   e -b (backup) são obrigatórios. O número de partições é fixo depois de criado.
+# - Um processo só (sem -p/-a): paralelismo entre máquinas exige endereços que este stack não
+#   gerencia. Para mais vazão, aumente workers (-w) no mesmo processo.
+# - Consumidor longo: restart always e usuário sem privilégio.
+# Documentação: https://docs.bytewax.io/stable/guide/concepts/recovery.html (bytewax 0.21)
+services:
+  bytewax:
+    image: python:[[ python ]]-slim
+    env_file: ${FORGE_ENV_FILE}
+    environment:
+      PYTHONPATH: /opt/project/src
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ${FORGE_ROOT}:/opt/project:ro
+      - bytewax-recovery:/recovery
+    command:
+      - sh
+      - -c
+      - >-
+        pip install --no-cache-dir "bytewax[kafka]>=0.21,<1" &&
+        ([ -f /recovery/.initialized ] || (python -m bytewax.recovery /recovery 1 && touch /recovery/.initialized)) &&
+        exec python -m bytewax.run [[ package ]].streaming.bytewax_dataflow:flow -r /recovery -s 30 -b 60
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qa bytewax.run /proc/1/cmdline"]
+      interval: 15s
+      retries: 3
+      start_period: 180s
+    restart: always
+
+volumes:
+  bytewax-recovery: {}

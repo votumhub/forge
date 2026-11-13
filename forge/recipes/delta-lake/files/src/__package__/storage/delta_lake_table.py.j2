@@ -1,0 +1,60 @@
+# Receita delta-lake (table_format) - gerada por `forge init --recipe delta-lake`.
+# Como conecta: deltalake + pyarrow (pip install "deltalake>=0.20" "pyarrow>=17"), módulo
+#   importado pelos jobs de transformação; grava em um bucket S3-compatível (receitas
+#   cloudflare-r2 ou aws-s3, ou MinIO) sob <tenant>/<camada>/<tabela>.
+# Variáveis (env do alvo no forge.yaml): DELTA_LAKE_BUCKET, AWS_ACCESS_KEY_ID e
+#   AWS_SECRET_ACCESS_KEY (secret://AWS_ACCESS_KEY_ID e secret://AWS_SECRET_ACCESS_KEY),
+#   AWS_ENDPOINT_URL (vazio na AWS; https://<conta>.r2.cloudflarestorage.com no R2;
+#   http://minio:9000 no MinIO) e AWS_REGION (padrão "auto" com endpoint próprio).
+# dev x prd: cada alvo aponta para o próprio bucket e endpoint no env do alvo; o código é o mesmo.
+# Regras que custaram caro:
+# - Toda escrita usa partition_by=["data"], para manter o layout data=YYYY-MM-DD mesmo com o
+#   delta-rs escolhendo os nomes dos arquivos.
+# - aws_conditional_put=etag em endpoint S3-compatível sem provedor de lock tipo DynamoDB (R2,
+#   MinIO): escritores concorrentes sem isso corrompem o log de transações.
+# - write() só faz append. Backfill que substitui partição chama write_deltalake direto com
+#   mode="overwrite" e o predicado da partição, nunca este helper.
+# Documentação: https://delta-io.github.io/delta-rs/usage/writing/writing-to-s3-with-locking-provider/ (deltalake 0.20)
+from __future__ import annotations
+
+import os
+from datetime import date
+
+import pyarrow as pa
+from deltalake import DeltaTable, write_deltalake
+
+
+def storage_options() -> dict[str, str]:
+    options = {
+        "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+        "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+        "aws_conditional_put": "etag",
+    }
+    endpoint = os.environ.get("AWS_ENDPOINT_URL", "")
+    if endpoint:
+        options["AWS_ENDPOINT_URL"] = endpoint
+        options["AWS_REGION"] = os.environ.get("AWS_REGION", "auto")
+        options["AWS_ALLOW_HTTP"] = "true" if endpoint.startswith("http://") else "false"
+    return options
+
+
+def table_uri(tenant: str, layer: str, table: str) -> str:
+    return f"s3://{os.environ['DELTA_LAKE_BUCKET']}/{tenant}/{layer}/{table}"
+
+
+def write(table: pa.Table, uri: str, logical_date: date) -> None:
+    stamped = table.append_column("data", pa.array([logical_date.isoformat()] * table.num_rows))
+    write_deltalake(
+        uri,
+        stamped,
+        storage_options=storage_options(),
+        partition_by=["data"],
+        mode="append",
+    )
+
+
+def read(uri: str, logical_date: date | None = None) -> pa.Table:
+    delta = DeltaTable(uri, storage_options=storage_options())
+    if logical_date is None:
+        return delta.to_pyarrow_table()
+    return delta.to_pyarrow_table(partitions=[("data", "=", logical_date.isoformat())])

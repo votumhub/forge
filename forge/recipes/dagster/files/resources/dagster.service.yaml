@@ -1,0 +1,15 @@
+# Receita dagster (orchestrator) - serviço do forge para webserver e daemon do Dagster.
+# Como conecta: o forge sobe compose/dagster.yaml com -p <project> e --env-file do alvo, recria
+#   webserver e daemon a cada release (código e env novos) e espera o webserver responder.
+# Variáveis (env do alvo no forge.yaml): DAGSTER_PORT (padrão 3000); o resto está no topo de
+#   compose/dagster.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.dagster.io/api/dagster/cli (dagster 1.8)
+compose:
+  - compose/dagster.yaml
+release_services:
+  - dagster-webserver
+  - dagster-daemon
+health:
+  url: http://localhost:${DAGSTER_PORT:-3000}/server_info
+  timeout: 300

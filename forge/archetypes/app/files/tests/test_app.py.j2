@@ -1,0 +1,8 @@
+import pytest
+
+from [[ package ]].app import answer
+
+
+@pytest.mark.parametrize("path,status", [("/health", 200), ("/", 200), ("/nao-existe", 404)])
+def test_answer(path: str, status: int) -> None:
+    assert answer(path)[0] == status

@@ -1,0 +1,8 @@
+description: contratos de dados do Soda Core 4 sobre DuckDB, verificados por API e reprovando alto em prd
+family: quality
+env: [DUCKDB_DATABASE, SODA_DATA_SOURCE, SODA_CONTRACTS_DIR, SODA_LEVEL]
+requires: ["soda-core>=4.25"]
+docs:
+  url: https://docs.soda.io/soda-v4/reference/contract-language-reference
+  version: "soda-core 4.25 / soda-duckdb 4.25"
+provada: false

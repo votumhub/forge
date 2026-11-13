@@ -1,0 +1,95 @@
+# Receita generated-docs (catalog) - gerada por `forge init --recipe generated-docs`.
+# Como conecta: pyyaml (já vem com o forge) + ast da stdlib. Lê resources/*.job.yaml e
+#   resources/*.service.yaml e a docstring de cada flow, e escreve o catálogo em Markdown.
+#   Rode `python -m forge env -t dev -- python -m [[ package ]].docs.generated_docs_catalog`
+#   (o job generated-docs-catalog roda no before_deploy, para o catálogo nunca atrasar em relação ao código).
+# Variáveis (env do alvo no forge.yaml): FORGE_ROOT (exportada pelo forge; padrão "."),
+#   CATALOG_PATH (padrão docs/catalogo.md).
+# dev x prd: o conteúdo é o mesmo nos dois alvos (vem do repositório); só o caminho de saída
+#   pode mudar pelo env.
+# Regras:
+#   - cada job no catálogo diz a camada e o mecanismo de publicação: sem isso o leitor não
+#     distingue uma tabela bronze de uma gold já publicada. Declare na docstring do flow as
+#     linhas "Camada: ..." e "Publicação: ..."; faltando, o catálogo mostra "não declarada".
+#   - agenda (cron/timezone) e textos de SLA são copiados literalmente da fonte, nunca
+#     parafraseados: resumo com outras palavras descola da garantia na primeira edição.
+#   - o arquivo gerado não se edita à mão; edite a fonte e gere de novo.
+# Documentação: https://pyyaml.org/wiki/PyYAMLDocumentation (pyyaml 6.0)
+from __future__ import annotations
+
+import ast
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+FIELDS = ("Camada", "Publicação")
+
+
+def root() -> Path:
+    return Path(os.environ.get("FORGE_ROOT", "."))
+
+
+def load(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def flow_docstring(flow: str) -> str:
+    file_name, func = flow.split(":")
+    tree = ast.parse((root() / file_name).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == func:
+            return ast.get_docstring(node) or ""
+    raise LookupError(f"flow {flow} não encontrado")
+
+
+def declared(doc: str, field: str) -> str:
+    for line in doc.splitlines():
+        if line.strip().startswith(f"{field}:"):
+            return line.split(":", 1)[1].strip()
+    return "não declarada"
+
+
+def job_section(path: Path) -> list[str]:
+    job = load(path)
+    trigger = job["trigger"]
+    title = [f"### {path.name.removesuffix('.job.yaml')}", ""]
+    if "deploy" in trigger:
+        keys = ", ".join(f"`{task['key']}`" for task in job["tasks"])
+        return [*title, f"- Roda no deploy ({trigger['deploy']['when']}): tasks {keys}", ""]
+    doc = flow_docstring(job["flow"])
+    lines = [*title, doc.splitlines()[0] if doc else "(flow sem docstring)", ""]
+    lines.append(f"- Flow: `{job['flow']}` · work pool: `{job['work_pool']}`")
+    lines.extend(f"- {field}: {declared(doc, field)}" for field in FIELDS)
+    schedule = trigger.get("schedule")
+    agenda = f"`{schedule['cron']}` ({schedule.get('timezone', 'UTC')})" if schedule else "sem agenda"
+    lines.extend([f"- Agenda: {agenda}", ""])
+    return lines
+
+
+def service_section(path: Path) -> list[str]:
+    service = load(path)
+    compose = ", ".join(f"`{item}`" for item in service["compose"])
+    return [f"### {path.name.removesuffix('.service.yaml')}", "", f"- Compose: {compose}", ""]
+
+
+def render() -> str:
+    resources = root() / "resources"
+    lines = ["# Catálogo", "", "Gerado de resources/. Não editar à mão.", "", "## Jobs", ""]
+    for path in sorted(resources.glob("*.job.yaml")):
+        lines.extend(job_section(path))
+    lines.extend(["## Serviços", ""])
+    for path in sorted(resources.glob("*.service.yaml")):
+        lines.extend(service_section(path))
+    return "\n".join(lines)
+
+
+def main() -> None:
+    target = root() / os.environ.get("CATALOG_PATH", "docs/catalogo.md")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(render(), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

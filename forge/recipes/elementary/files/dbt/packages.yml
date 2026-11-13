@@ -1,0 +1,21 @@
+# Receita elementary (quality) - gerada por `forge init --recipe elementary`.
+# Como conecta: pacote dbt elementary-data/elementary, instalado por `dbt deps`; o CLI edr vem do
+#   pip (pip install "elementary-data[duckdb]>=0.24,<0.25"). Só faz sentido com a receita
+#   dbt-core no bundle: o edr lê o manifest.json e o run_results.json do projeto dbt.
+#   Acrescente em dbt/dbt_project.yml, dentro de `models:`, o bloco
+#     elementary:
+#       +schema: elementary
+#   para os modelos do elementary irem para <DBT_SCHEMA>_elementary (o que ELEMENTARY_SCHEMA lê).
+# Ordem obrigatória na primeira vez (os modelos do elementary nascem vazios e o relatório sai
+#   "limpo" sem ter observado nada):
+#   python -m forge env -t dev -- dbt deps --project-dir dbt --profiles-dir dbt
+#   python -m forge env -t dev -- dbt run --select elementary --project-dir dbt --profiles-dir dbt
+#   python -m forge env -t dev -- edr report --project-dir dbt --profiles-dir elementary
+# Variáveis: veja o topo de elementary/profiles.yml.
+# dev x prd: a mesma versão fixada nos dois alvos; o banco muda pelo env do alvo.
+# Regra: versão EXATA aqui e no pip (mesma linha 0.24): sem pino, o próximo `dbt deps` sobe o
+#   pacote, as colunas dos modelos mudam e o edr quebra em silêncio.
+# Documentação: https://docs.elementary-data.com/oss/quickstart/quickstart-cli-package (0.24.0)
+packages:
+  - package: elementary-data/elementary
+    version: 0.24.0

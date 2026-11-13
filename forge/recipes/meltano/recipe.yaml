@@ -1,0 +1,8 @@
+description: projeto Meltano (tap-postgres -> target-duckdb) rodado por um flow Prefect, com estado fora do artefato e telemetria desligada
+family: ingestion
+env: [MELTANO_PROJECT_ROOT, MELTANO_SEND_ANONYMOUS_USAGE_STATS, MELTANO_STATE_BACKEND_URI, TAP_POSTGRES_SQLALCHEMY_URL, TARGET_DUCKDB_FILEPATH]
+requires: ["prefect"]
+docs:
+  url: https://docs.meltano.com/concepts/state_backends
+  version: "meltano 3"
+provada: false

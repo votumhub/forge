@@ -1,0 +1,25 @@
+<!--
+  Receita clickhouse (serving) - gerada por `forge init --recipe clickhouse`.
+  Como conecta: montado em /etc/clickhouse-server/config.d/ pelo compose/clickhouse.yaml.
+  Variáveis (env do alvo no forge.yaml): nenhuma; este arquivo vale para todo alvo.
+  dev x prd: igual nos dois; o tamanho da máquina de cada alvo muda o limite real (é razão).
+  Merges de MergeTree não têm freio por padrão: sem teto de memória, um OOM aqui derruba todos
+  os containers da mesma máquina, não só o ClickHouse. O disco `backups` é o único destino
+  permitido para BACKUP.
+  Documentação: https://clickhouse.com/docs/operations/backup (clickhouse-server 26.3)
+-->
+<clickhouse>
+    <max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>
+    <storage_configuration>
+        <disks>
+            <backups>
+                <type>local</type>
+                <path>/backups/</path>
+            </backups>
+        </disks>
+    </storage_configuration>
+    <backups>
+        <allowed_disk>backups</allowed_disk>
+        <allowed_path>/backups/</allowed_path>
+    </backups>
+</clickhouse>

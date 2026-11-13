@@ -1,0 +1,15 @@
+# Receita meltano (ingestion) - job do forge que publica o flow meltano_el no Prefect.
+# Como conecta: o forge publica este job como meltano-<alvo> no work pool abaixo (use o
+#   mesmo nome de PREFECT_WORK_POOL do worker da receita prefect).
+# Variáveis: as do topo de meltano/meltano.yml; nenhuma é lida aqui.
+# dev x prd: em dev a agenda nasce pausada; em prd roda no cron. Nada mais muda aqui.
+# Documentação: https://docs.meltano.com/reference/command-line-interface (meltano 3)
+flow: src/[[ package ]]/orchestration/meltano_flow.py:meltano_el
+parameters:
+  extractor: tap-postgres
+  loader: target-duckdb
+trigger:
+  schedule:
+    cron: "0 3 * * *"
+    timezone: America/Sao_Paulo
+work_pool: default

@@ -1,0 +1,21 @@
+# Receita evidence (bi) - gerada por `forge init --recipe evidence`.
+# Como conecta: conector direto Postgres do Evidence; este arquivo fica na raiz do projeto
+#   Evidence (pasta evidence/, montada em /project pelo compose/evidence.yaml). O servidor
+#   evidencedev/serve resolve cada ${VAR} a partir do ambiente do container.
+# Variáveis (env do alvo no forge.yaml): EVIDENCE_PG_HOST, EVIDENCE_PG_PORT (5432),
+#   EVIDENCE_PG_DATABASE, EVIDENCE_PG_USER (um usuário só-leitura do gold),
+#   EVIDENCE_PG_PASSWORD (segredo: secret://EVIDENCE_PG_PASSWORD), EVIDENCE_PG_SSLMODE
+#   (verify-full por padrão no Evidence; disable só dentro da rede privada).
+# dev x prd: o banco lido muda só pelo env do alvo; este arquivo é o mesmo nos dois.
+# Regras:
+#   - só referências ${VAR}, nunca credencial literal: o arquivo vai para o git junto do projeto.
+#   - o conector tem de alcançar o gold pela rede (postgres ou clickhouse); gold servido como
+#     arquivo duckdb/parquet em disco não tem conector direto (a fonte "arquivo" é upload manual).
+# Documentação: https://docs.evidence.dev/direct-connectors/postgres
+type: postgres
+host: ${EVIDENCE_PG_HOST}
+port: ${EVIDENCE_PG_PORT}
+database: ${EVIDENCE_PG_DATABASE}
+user: ${EVIDENCE_PG_USER}
+password: ${EVIDENCE_PG_PASSWORD}
+sslmode: ${EVIDENCE_PG_SSLMODE}

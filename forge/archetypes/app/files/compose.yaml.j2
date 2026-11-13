@@ -1,0 +1,10 @@
+# O forge passa --env-file .forge/env/<alvo>.env e -p <project>; nada aqui depende do alvo.
+# A porta fica só no loopback do host (APP_BIND, padrão 127.0.0.1): quem entra de fora passa
+# pelo proxy da route. 0.0.0.0 abre em toda interface; só atrás de proxy ou rede privada.
+services:
+  app:
+    image: ${APP_IMAGE}
+    env_file: ${FORGE_ENV_FILE}
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT}:8000"
+    restart: unless-stopped

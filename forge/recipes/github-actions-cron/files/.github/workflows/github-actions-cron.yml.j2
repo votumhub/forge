@@ -1,0 +1,62 @@
+# Receita github-actions-cron (orchestrator) - gerada por `forge init --recipe github-actions-cron`.
+# Como conecta: workflow agendado, complementar ao forge.yml (que só valida e faz deploy). A
+#   cada disparo instala o forge e o projeto como o forge.yml (uv e o grupo forge do
+#   pyproject.toml) e roda CRON_COMMAND dentro do envelope do alvo:
+#   forge env -t <alvo> --yes -- <CRON_COMMAND>. Com Prefect no bundle, prefira a agenda do job
+#   (resources/<job>.job.yaml) e use aqui `forge run -t <alvo> <job>`.
+# --yes de propósito: o forge env recusa alvo production sem ele. Versionar este workflow
+#   agendado é a assinatura de quem o criou para a rodada em produção.
+# Import do pacote: CRON_COMMAND importa o projeto porque o passo anterior o instala no .venv.
+#   Projeto sem [build-system] não é instalado: declare PYTHONPATH: src no env do alvo no
+#   forge.yaml (o forge env só repassa ao comando o envelope do alvo e o mínimo do sistema, então
+#   um PYTHONPATH no env do passo não chega lá).
+# Variáveis: CRON_TARGET (alvo do forge.yaml; padrão prd) e CRON_COMMAND (o comando do
+#   pipeline) ficam no `env:` do workflow abaixo, não no forge.yaml; FORGE_RUNNER é a variável
+#   do repositório que o forge.yml também usa (sem ela, roda em ubuntu-latest). Segredos do
+#   alvo com provider env: exponha cada um no `env:` do passo "roda" (ex.: MSSQL_PASSWORD:
+#   secrets.MSSQL_PASSWORD entre chaves duplas com cifrão).
+# dev x prd: o evento schedule só dispara a partir do branch padrão, então a agenda vale para
+#   um alvo só (CRON_TARGET, normalmente prd); dev roda à mão pelo workflow_dispatch, escolhendo
+#   o alvo. O que muda entre alvos continua no env de cada alvo no forge.yaml.
+# Regras:
+#   - concurrency com cancel-in-progress true: um run lento nunca se sobrepõe ao próximo tick.
+#   - o cron é UTC e o GitHub pode atrasar disparos em horário de pico; não agende no minuto 0.
+#   - workflow agendado em repositório sem atividade por 60 dias é desligado pelo GitHub.
+# Documentação: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule
+name: github-actions-cron
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: alvo do forge.yaml
+        default: prd
+
+env:
+  CRON_TARGET: ${{ inputs.target || 'prd' }}
+  CRON_COMMAND: python -c "import [[ package ]]"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-actions-cron-${{ inputs.target || 'prd' }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ${{ vars.FORGE_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+[% if vendored %]      - name: dependências do forge (vendorizado em ./forge) e o projeto
+        run: |
+          uv venv --python "[[ python ]]"
+          uv pip install "pydantic~=2.13" "jinja2~=3.1" "pyyaml~=6.0"
+          if [ -f pyproject.toml ]; then uv pip install -e .; fi
+[% else %]      - name: instala o forge e o projeto (grupo forge do pyproject.toml)
+        run: uv sync --group forge
+[% endif %]      - name: roda
+        run: [[ "uv run --no-sync python -m forge" if vendored else "uv run forge" ]] env -t "$CRON_TARGET" --yes -- bash -c "$CRON_COMMAND"

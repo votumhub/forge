@@ -1,0 +1,8 @@
+description: lê tabelas de um MySQL com usuário somente leitura e TLS, cheia ou incremental por cursor
+family: source
+env: [MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD, MYSQL_REQUIRE_TLS, MYSQL_SSL_CA]
+requires: ["pymysql>=1.1"]
+docs:
+  url: https://pymysql.readthedocs.io/en/latest/modules/connections.html
+  version: "pymysql 1.1"
+provada: false

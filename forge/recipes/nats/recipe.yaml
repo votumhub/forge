@@ -1,0 +1,8 @@
+description: NATS com JetStream em volume nomeado, token obrigatório e /healthz, mais um cliente Python para publicar
+family: bus
+env: [NATS_AUTH_TOKEN, NATS_PORT, NATS_MONITOR_PORT, NATS_URL]
+requires: ["nats-py>=2"]
+docs:
+  url: https://docs.nats.io/running-a-nats-service/configuration
+  version: "nats-server 2.11 / nats-py 2.x"
+provada: false

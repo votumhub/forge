@@ -1,0 +1,7 @@
+description: landing em disco local só para dev, com caminho <tenant>/<dataset>/data=YYYY-MM-DD e recusa em prd
+family: storage
+env: [LANDING_PATH, FORGE_TARGET]
+docs:
+  url: https://docs.python.org/3/library/pathlib.html
+  version: "Python 3.11+ (stdlib)"
+provada: false

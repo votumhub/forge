@@ -1,0 +1,8 @@
+description: conexão DuckDB com memória e threads por alvo, e acesso a S3/R2 quando há credencial
+family: engine
+env: [DUCKDB_DATABASE, DUCKDB_MEMORY_LIMIT, DUCKDB_THREADS, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL]
+requires: ["duckdb>=1.3"]
+docs:
+  url: https://duckdb.org/docs/stable/clients/python/overview
+  version: "duckdb 1.3"
+provada: true

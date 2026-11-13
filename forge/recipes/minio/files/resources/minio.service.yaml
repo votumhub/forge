@@ -1,0 +1,12 @@
+# Receita minio (storage) - serviço do forge para o servidor MinIO.
+# Como conecta: o forge sobe compose/minio.yaml com -p <project> e --env-file do alvo e espera
+#   o probe de vida da API S3. Depois, o job minio-bootstrap (gatilho deploy
+#   after_up, resources/minio-bootstrap.job.yaml) cria o bucket e a expiração.
+# Variáveis: MINIO_PORT (padrão 9000); o resto está no topo de compose/minio.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://github.com/minio/minio
+compose:
+  - compose/minio.yaml
+health:
+  url: http://localhost:${MINIO_PORT:-9000}/minio/health/live
+  timeout: 120

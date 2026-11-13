@@ -1,0 +1,8 @@
+description: broker Redpanda (API Kafka) de um nó em compose, com SASL ligado por alvo e cliente Python pronto
+family: bus
+env: [REDPANDA_ADVERTISED_HOST, REDPANDA_KAFKA_PORT, REDPANDA_SASL_ENABLED, REDPANDA_SUPERUSER, REDPANDA_SASL_PASSWORD, REDPANDA_BROKERS]
+requires: ["confluent-kafka>=2.6"]
+docs:
+  url: https://docs.redpanda.com/current/manage/security/authentication/
+  version: "redpanda v26.2.3 / confluent-kafka 2.6"
+provada: false

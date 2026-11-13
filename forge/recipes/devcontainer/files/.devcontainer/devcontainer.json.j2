@@ -1,0 +1,18 @@
+// Receita devcontainer (devenv) - gerada por `forge init --recipe devcontainer`.
+// Como conecta: VS Code / Codespaces / devcontainer CLI abrem o repositório nesta imagem
+//   (mcr.microsoft.com/devcontainers/python) e instalam o uv; nada disso roda em dev ou prd.
+// Variáveis (env do alvo no forge.yaml): nenhuma; dentro do container use
+//   `python -m forge env -t dev -- <comando>` para rodar com o env do alvo dev.
+// dev x prd: não se aplica; o container é só ambiente de edição, igual para todos.
+// Regras que custaram caro:
+// - A imagem fixa o mesmo Python do projeto ([[ python ]]); container que diverge do projeto
+//   é o bug que o uv não pega.
+// - postCreateCommand roda `uv sync --frozen`: abrir o container nunca instala um conjunto de
+//   dependências diferente do lock que o CI usa.
+// Documentação: https://containers.dev/implementors/json_reference/ (Dev Container Specification)
+{
+  "name": "[[ name ]]",
+  "image": "mcr.microsoft.com/devcontainers/python:1-[[ python ]]",
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv sync --frozen",
+  "remoteUser": "vscode"
+}

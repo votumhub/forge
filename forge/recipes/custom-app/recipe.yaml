@@ -1,0 +1,7 @@
+description: serviço para uma aplicação que o forge não escreveu (imagem e comando próprios), provada pela rota de saúde
+family: service
+env: [CUSTOM_APP_IMAGE, CUSTOM_APP_COMMAND, CUSTOM_APP_PORT, CUSTOM_APP_INTERNAL_PORT, CUSTOM_APP_HEALTH_PATH, CUSTOM_APP_USER]
+docs:
+  url: https://docs.docker.com/reference/compose-file/services/
+  version: "Compose Specification (docker compose v2)"
+provada: false

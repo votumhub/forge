@@ -1,0 +1,60 @@
+# Receita metabase (bi) - gerada por `forge init --recipe metabase`.
+# Como conecta: imagem metabase/metabase com o banco de aplicação no Postgres `metabase-appdb`
+#   deste compose (ou num Postgres externo via METABASE_APP_DB_HOST). O forge sobe com
+#   resources/metabase.service.yaml; não há pacote Python.
+# Versão fixada: metabase/metabase:v0.63.18.1, a estável (tag latest) no Docker Hub em
+#   2026-09-23. Subir de versão é decisão: troque a tag aqui e prove a migração do banco.
+# Variáveis (env do alvo no forge.yaml): METABASE_PORT (3000), METABASE_APP_DB_HOST (padrão metabase-appdb), METABASE_APP_DB_PORT,
+#   METABASE_APP_DB_NAME, METABASE_APP_DB_USER, METABASE_APP_DB_PASSWORD (segredo:
+#   secret://METABASE_APP_DB_PASSWORD), METABASE_ENCRYPTION_SECRET_KEY (segredo:
+#   secret://METABASE_ENCRYPTION_SECRET_KEY).
+# dev x prd: mesmo arquivo; em prd a senha e a chave são as do alvo prd, e o volume do
+#   banco de aplicação entra no backup. A diferença mora só no env do alvo.
+# Regras que custaram caro:
+# - Nunca o H2 embutido: ele guarda toda pergunta e dashboard num arquivo que corrompe com o
+#   container e não tem migração suportada de volta.
+# - METABASE_ENCRYPTION_SECRET_KEY existe antes do primeiro start e nunca muda: ela cifra as
+#   conexões salvas; perdida ou trocada, cada credencial de banco é redigitada à mão.
+# - Tag fixa: o Metabase migra o próprio banco ao subir; subir versão é decisão, não acidente.
+# - A conexão que o Metabase usa para ler a camada de serving é uma role SOMENTE LEITURA, nunca
+#   a identidade que publica; dashboard com conexão de escrita fica a uma query do desastre.
+# Documentação: https://www.metabase.com/docs/latest/installation-and-operation/running-metabase-on-docker
+services:
+  metabase:
+    image: metabase/metabase:v0.63.18.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: ${METABASE_APP_DB_HOST:-metabase-appdb}
+      MB_DB_PORT: "${METABASE_APP_DB_PORT:-5432}"
+      MB_DB_DBNAME: ${METABASE_APP_DB_NAME:-metabase}
+      MB_DB_USER: ${METABASE_APP_DB_USER:-metabase}
+      MB_DB_PASS: ${METABASE_APP_DB_PASSWORD:?}
+      MB_ENCRYPTION_SECRET_KEY: ${METABASE_ENCRYPTION_SECRET_KEY:?}
+    depends_on:
+      metabase-appdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "-s", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  metabase-appdb:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${METABASE_APP_DB_NAME:-metabase}
+      POSTGRES_USER: ${METABASE_APP_DB_USER:-metabase}
+      POSTGRES_PASSWORD: ${METABASE_APP_DB_PASSWORD:?}
+    volumes:
+      - metabase-appdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  metabase-appdb: {}

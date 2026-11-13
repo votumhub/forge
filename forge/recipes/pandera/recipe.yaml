@@ -1,0 +1,8 @@
+description: schemas Pandera estritos validados em modo lazy, que avisam em dev e barram em prd
+family: quality
+env: [PANDERA_LEVEL]
+requires: ["pandera[pandas]>=0.24", "pandas"]
+docs:
+  url: https://pandera.readthedocs.io/en/stable/dataframe_models.html
+  version: "pandera 0.24"
+provada: false

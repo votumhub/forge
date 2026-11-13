@@ -1,0 +1,52 @@
+# Receita sql-checks (quality) - gerada por `forge init --recipe sql-checks`.
+# Como conecta: usa o connect() da receita duckdb (forge init --recipe duckdb; pip install
+#   "duckdb>=1.3"). Rode num job Prefect, num hook ou à mão dentro do envelope:
+#   python -m forge env -t dev -- python -m [[ package ]].quality.sql_checks
+# Variáveis (env do alvo no forge.yaml): SQL_CHECKS_DIR (padrão sql/sql-checks),
+#   SQL_CHECKS_LEVEL (warning ou error; padrão error), mais as do duckdb (DUCKDB_DATABASE...).
+# dev x prd: dev usa SQL_CHECKS_LEVEL=warning (relata e segue), prd usa error (reprova o run).
+#   O padrão é error: um alvo que esqueceu o env falha alto em vez de passar mudo.
+# Regras: uma checagem passa quando a query devolve ZERO linhas; cada linha devolvida é uma
+#   violação (escrever ao contrário, afirmando que linhas existem, reporta verde justo no
+#   dado que devia pegar). Os arquivos rodam em ordem lexical: dependência entre checagens
+#   pede prefixo numérico (01_, 02_). Pasta vazia reprova aqui, em vez de passar limpa.
+# Documentação: https://duckdb.org/docs/stable/clients/python/dbapi (duckdb 1.3)
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+from [[ package ]].engine.duckdb_connection import connect
+
+
+def check_files() -> list[Path]:
+    folder = Path(os.environ.get("SQL_CHECKS_DIR", "sql/sql-checks"))
+    found = sorted(folder.glob("*.sql"))
+    if not found:
+        raise FileNotFoundError(f"nenhuma checagem *.sql em {folder}")
+    return found
+
+
+def violations() -> dict[str, int]:
+    """{arquivo: linhas violando} só para as checagens que devolveram alguma linha."""
+    found: dict[str, int] = {}
+    with connect() as conn:
+        for path in check_files():
+            rows = conn.execute(path.read_text(encoding="utf-8")).fetchall()
+            if rows:
+                found[path.name] = len(rows)
+    return found
+
+
+def run() -> int:
+    found = violations()
+    for name, count in found.items():
+        print(f"{name}: {count} linha(s) violam a regra")
+    if found and os.environ.get("SQL_CHECKS_LEVEL", "error") == "error":
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())

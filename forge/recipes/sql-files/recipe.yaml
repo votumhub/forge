@@ -1,0 +1,7 @@
+description: transformação em arquivos SQL numerados por camada, aplicados em ordem no DuckDB
+family: transform
+env: [SQL_FILES_DIR, SQL_FILES_LAYERS]
+docs:
+  url: https://duckdb.org/docs/stable/sql/statements/create_table
+  version: "duckdb 1.3"
+provada: false

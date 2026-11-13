@@ -1,0 +1,7 @@
+description: recebedor de webhook só com a biblioteca padrão, com assinatura HMAC, resposta imediata e guarda de replay
+family: source
+env: [WEBHOOK_SECRET, WEBHOOK_PORT, WEBHOOK_PATH, WEBHOOK_MAX_BODY_BYTES, WEBHOOK_SIGNATURE_HEADER, WEBHOOK_ID_HEADER, WEBHOOK_STATE_DB]
+docs:
+  url: https://docs.python.org/3/library/http.server.html
+  version: "Python 3.12 (biblioteca padrão)"
+provada: false

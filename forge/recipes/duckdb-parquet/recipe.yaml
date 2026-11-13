@@ -1,0 +1,8 @@
+description: publicação atômica do arquivo gold DuckDB (staging + os.replace) e leitura só-leitura para quem serve
+family: serving
+env: [GOLD_PATH, GOLD_STAGING_DIR, GOLD_KEEP_SNAPSHOTS]
+requires: ["duckdb>=1.0"]
+docs:
+  url: https://duckdb.org/docs/stable/connect/concurrency
+  version: "duckdb 1.0"
+provada: false

@@ -1,0 +1,8 @@
+description: lê tabelas de um SQL Server (somente leitura), com colunas descobertas no INFORMATION_SCHEMA
+family: source
+env: [MSSQL_HOST, MSSQL_PORT, MSSQL_DATABASE, MSSQL_USER, MSSQL_PASSWORD, MSSQL_ENCRYPT]
+requires: ["pymssql>=2.3"]
+docs:
+  url: https://pymssql.readthedocs.io/en/stable/
+  version: "pymssql 2.3"
+provada: true

@@ -1,0 +1,8 @@
+description: leitura lazy de Parquet local ou S3/R2/MinIO com Polars, threads por alvo e credencial relida a cada scan
+family: engine
+env: [POLARS_MAX_THREADS, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL, AWS_REGION]
+requires: ["polars>=1.9"]
+docs:
+  url: https://docs.pola.rs/user-guide/io/cloud-storage/
+  version: "polars 1.9"
+provada: false

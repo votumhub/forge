@@ -1,0 +1,7 @@
+description: checagens de qualidade em SQL puro sobre DuckDB, onde cada linha devolvida é uma violação
+family: quality
+env: [SQL_CHECKS_DIR, SQL_CHECKS_LEVEL]
+docs:
+  url: https://duckdb.org/docs/stable/clients/python/dbapi
+  version: "duckdb 1.3"
+provada: false

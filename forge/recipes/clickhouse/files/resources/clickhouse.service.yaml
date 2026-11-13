@@ -1,0 +1,13 @@
+# Receita clickhouse (serving) - serviço do forge para o servidor ClickHouse.
+# Como conecta: o forge sobe compose/clickhouse.yaml com -p <project> e --env-file do alvo e
+#   espera o /ping responder. Nenhum serviço é recriado por release: o servidor guarda estado e
+#   a publicação de dados é feita pelo código, não pelo deploy.
+# Variáveis (env do alvo no forge.yaml): CLICKHOUSE_HTTP_PORT (padrão 8123); o resto está no
+#   topo de compose/clickhouse.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://clickhouse.com/docs/interfaces/http (clickhouse-server 26.3)
+compose:
+  - compose/clickhouse.yaml
+health:
+  url: http://localhost:${CLICKHOUSE_HTTP_PORT:-8123}/ping
+  timeout: 120

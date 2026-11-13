@@ -1,0 +1,38 @@
+forge: 2
+
+bundle:
+  name: [[ name ]]
+
+include:
+  - resources/*.yaml
+
+variables:
+  registry:
+    description: registry de onde prd puxa a imagem
+    default: [[ registry ]]
+
+env:
+  APP_PORT: "[[ app_port ]]"
+  APP_BIND: "127.0.0.1"
+
+targets:
+  dev:
+    mode: development
+    default: true
+    secrets:
+      provider: dotenv
+      path: .forge/secrets/dev.env
+  prd:
+    mode: production
+    git:
+      tag: "v*"
+    secrets:
+      provider: env
+
+artifacts:
+  app:
+    env: APP_IMAGE
+    build:
+      dockerfile: Dockerfile
+      context: .
+    pull: ${var.registry}/[[ name ]]:${bundle.release}

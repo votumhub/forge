@@ -1,0 +1,17 @@
+# Receita evidence (bi) - serviço do forge para o servidor de relatórios.
+# Como conecta: sobe compose/evidence.yaml; `evidence` é recriado a cada release (projeto e env
+#   novos). A saúde usa o login básico, porque uma URL sem credencial devolve 401.
+# Variáveis: EVIDENCE_PORT, EVIDENCE_BASIC_USER, EVIDENCE_BASIC_PASSWORD; o resto está no topo
+#   de compose/evidence.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.evidence.dev/self-host
+compose:
+  - compose/evidence.yaml
+release_services:
+  - evidence
+health:
+  command:
+    - sh
+    - -c
+    - curl -fsS -o /dev/null -u "$EVIDENCE_BASIC_USER:$EVIDENCE_BASIC_PASSWORD" "http://localhost:${EVIDENCE_PORT:-3000}/"
+  timeout: 180

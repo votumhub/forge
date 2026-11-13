@@ -1,0 +1,67 @@
+# Receita redpanda-schema-registry (schema-registry) - gerada por `forge init --recipe redpanda-schema-registry`.
+# Como conecta: httpx (pip install "httpx>=0.27") na API HTTP do Schema Registry embutido no
+#   broker Redpanda (porta 8081 do MESMO broker; não é serviço que se sobe duas vezes).
+#   O bootstrap roda no job redpanda-schema-registry-bootstrap (gatilho deploy after_up)
+#   e `health` para conferir o acesso; `register()` é chamado pelo código que produz.
+# Variáveis (env do alvo no forge.yaml): SCHEMA_REGISTRY_URL (ex.: http://localhost:8081, sem
+#   usuário/senha na URL: senha em URL acaba no histórico do shell e no log de acesso),
+#   SCHEMA_REGISTRY_COMPATIBILITY (padrão BACKWARD), REDPANDA_SASL_USER e
+#   REDPANDA_SASL_PASSWORD (segredo: secret://REDPANDA_SASL_PASSWORD; vazios = sem auth).
+# dev x prd: a compatibilidade é fixada explicitamente em todo alvo (modo não declarado deixa
+#   mudança quebrada de schema passar calada); em prd o registry exige SASL. A diferença
+#   mora só no env do alvo.
+# Documentação: https://docs.redpanda.com/current/manage/schema-reg/schema-reg-api/ (Redpanda Schema Registry API)
+from __future__ import annotations
+
+import argparse
+import os
+
+import httpx
+
+CONTENT_TYPE = "application/vnd.schemaregistry.v1+json"
+
+
+def _auth() -> tuple[str, str] | None:
+    user = os.environ.get("REDPANDA_SASL_USER")
+    password = os.environ.get("REDPANDA_SASL_PASSWORD")
+    if user and password:
+        return (user, password)
+    return None
+
+
+def client() -> httpx.Client:
+    return httpx.Client(
+        base_url=os.environ["SCHEMA_REGISTRY_URL"].rstrip("/"),
+        headers={"Content-Type": CONTENT_TYPE, "Accept": CONTENT_TYPE},
+        auth=_auth(),
+        timeout=15.0,
+    )
+
+
+def bootstrap() -> None:
+    compatibility = os.environ.get("SCHEMA_REGISTRY_COMPATIBILITY", "BACKWARD")
+    with client() as api:
+        api.put("/config", json={"compatibility": compatibility}).raise_for_status()
+
+
+def register(subject: str, avro_schema: str) -> int:
+    """Registra o schema Avro (texto JSON) no subject; devolve o id. Incompatível = HTTP 409."""
+    body = {"schema": avro_schema, "schemaType": "AVRO"}
+    with client() as api:
+        response = api.post(f"/subjects/{subject}/versions", json=body).raise_for_status()
+    return int(response.json()["id"])
+
+
+def health() -> None:
+    with client() as api:
+        api.get("/subjects").raise_for_status()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health"])
+    {"bootstrap": bootstrap, "health": health}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

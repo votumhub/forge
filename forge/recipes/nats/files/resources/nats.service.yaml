@@ -1,0 +1,11 @@
+# Receita nats (bus) - serviço do forge para o nats-server.
+# Como conecta: o forge sobe compose/nats.yaml com -p <project> e --env-file do alvo e espera
+#   o /healthz da porta de monitoramento; o broker não muda por release.
+# Variáveis: NATS_MONITOR_PORT (padrão 8222); o resto está no topo de compose/nats.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.nats.io/running-a-nats-service/nats_admin/monitoring (nats-server 2.11)
+compose:
+  - compose/nats.yaml
+health:
+  url: http://localhost:${NATS_MONITOR_PORT:-8222}/healthz
+  timeout: 60

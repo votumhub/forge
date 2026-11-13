@@ -1,0 +1,36 @@
+# Receita duckdb (engine) - gerada por `forge init --recipe duckdb`.
+# Como conecta: duckdb em processo (pip install "duckdb>=1.3"); `connect()` devolve a conexão
+#   já configurada, com o secret S3 criado antes da primeira query (sem ele, a primeira
+#   leitura do lago falha com um erro de IO opaco).
+# Variáveis (env do alvo no forge.yaml): DUCKDB_DATABASE (padrão :memory:; use um arquivo
+#   quando o catálogo precisa sobreviver a um restart), DUCKDB_MEMORY_LIMIT, DUCKDB_THREADS;
+#   opcionais AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY (segredos) e AWS_ENDPOINT_URL (R2/MinIO).
+# dev x prd: o laptop e o servidor não dividem teto; memória e threads vêm do env do alvo
+#   (ex.: dev 2GB/2, prd 8GB/8), nunca fixados aqui.
+# Documentação: https://duckdb.org/docs/stable/clients/python/overview (duckdb 1.3)
+from __future__ import annotations
+
+import os
+
+import duckdb
+
+
+def connect(database: str | None = None) -> duckdb.DuckDBPyConnection:
+    conn = duckdb.connect(database or os.environ.get("DUCKDB_DATABASE", ":memory:"))
+    conn.execute(f"SET memory_limit = '{os.environ.get('DUCKDB_MEMORY_LIMIT', '2GB')}'")
+    conn.execute(f"SET threads = {int(os.environ.get('DUCKDB_THREADS', '2'))}")
+    _configure_object_storage(conn)
+    return conn
+
+
+def _configure_object_storage(conn: duckdb.DuckDBPyConnection) -> None:
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if key_id is None or secret is None:
+        return
+    raw_endpoint = os.environ.get("AWS_ENDPOINT_URL", "")
+    endpoint = raw_endpoint.removeprefix("https://").removeprefix("http://")
+    extra = f", ENDPOINT '{endpoint}', URL_STYLE 'path'" if endpoint else ""
+    conn.execute(
+        f"CREATE OR REPLACE SECRET lake (TYPE s3, KEY_ID '{key_id}', SECRET '{secret}'{extra})"
+    )

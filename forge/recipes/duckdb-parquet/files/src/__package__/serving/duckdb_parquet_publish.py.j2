@@ -1,0 +1,85 @@
+# Receita duckdb-parquet (serving) - gerada por `forge init --recipe duckdb-parquet`.
+# Como conecta: duckdb em processo (pip install "duckdb>=1.0"). O job que monta o gold chama
+#   `new_snapshot()`, escreve nele (DuckDB ou COPY ... TO parquet) e chama `publish(path)`;
+#   quem serve (API, BI) só abre `connect_read_only()`. Ganchos: `python -m
+#   [[ package ]].serving.duckdb_parquet_publish bootstrap` (before_up) e `... health` (after_up).
+# Variáveis (env do alvo no forge.yaml): GOLD_PATH (arquivo servido, ex.: serve/gold/gold.duckdb),
+#   GOLD_STAGING_DIR (ex.: data/gold), GOLD_KEEP_SNAPSHOTS (padrão 3).
+# dev x prd: mesmo código; caminhos e retenção vêm do env de cada alvo, nunca fixados aqui.
+# Regras (aprendidas a duras penas):
+#   - o snapshot novo nasce em GOLD_STAGING_DIR e entra no lugar de GOLD_PATH por os.replace;
+#     nunca abra GOLD_PATH em modo escrita.
+#   - GOLD_STAGING_DIR e a pasta de GOLD_PATH ficam no MESMO sistema de arquivos: rename entre
+#     dispositivos não é atômico e um leitor pode cair no meio da cópia.
+#   - toda conexão fora deste módulo usa read_only=True: uma conexão gravável toma o lock do
+#     arquivo e bloqueia a publicação e os outros leitores.
+#   - a staging guarda só os últimos GOLD_KEEP_SNAPSHOTS; staging que cresce para sempre enche o
+#     disco de que a troca atômica depende.
+# Documentação: https://duckdb.org/docs/stable/connect/concurrency (duckdb 1.0)
+from __future__ import annotations
+
+import argparse
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+import duckdb
+
+
+def gold_path() -> Path:
+    return Path(os.environ["GOLD_PATH"])
+
+
+def staging_dir() -> Path:
+    return Path(os.environ["GOLD_STAGING_DIR"])
+
+
+def connect_read_only() -> duckdb.DuckDBPyConnection:
+    return duckdb.connect(str(gold_path()), read_only=True)
+
+
+def new_snapshot() -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    return staging_dir() / f"gold-{stamp}.duckdb"
+
+
+def on_same_filesystem() -> bool:
+    return staging_dir().stat().st_dev == gold_path().parent.stat().st_dev
+
+
+def publish(built: Path) -> None:
+    if not on_same_filesystem():
+        raise RuntimeError(
+            f"{staging_dir()} e {gold_path().parent} não estão no mesmo sistema de arquivos: "
+            f"o rename para {gold_path()} não seria atômico"
+        )
+    os.replace(built, gold_path())
+    prune()
+
+
+def prune() -> None:
+    keep = int(os.environ.get("GOLD_KEEP_SNAPSHOTS", "3"))
+    snapshots = sorted(staging_dir().glob("gold-*.duckdb"), reverse=True)
+    for old in snapshots[keep:]:
+        old.unlink()
+
+
+def bootstrap() -> None:
+    staging_dir().mkdir(parents=True, exist_ok=True)
+    gold_path().parent.mkdir(parents=True, exist_ok=True)
+
+
+def health() -> None:
+    if not gold_path().is_file():
+        raise SystemExit(f"{gold_path()} ainda não foi publicado")
+    connect_read_only().close()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["bootstrap", "health"])
+    {"bootstrap": bootstrap, "health": health}[parser.parse_args().action]()
+
+
+if __name__ == "__main__":
+    main()

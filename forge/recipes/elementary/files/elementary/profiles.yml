@@ -1,0 +1,19 @@
+# Receita elementary (quality) - profile do edr, que procura um profile chamado literalmente
+#   "elementary", separado do profile do projeto. Sem ele, todo comando edr falha com
+#   "profile not found". Este arquivo substitui o `dbt run-operation
+#   elementary.generate_elementary_cli_profile` e não carrega nenhum valor literal sensível.
+# Como conecta: `edr report|monitor --project-dir dbt --profiles-dir elementary`, sempre dentro
+#   do envelope (python -m forge env -t <alvo> -- edr ...).
+# Variáveis (env do alvo no forge.yaml): DUCKDB_DATABASE (o mesmo arquivo do profile do dbt),
+#   ELEMENTARY_SCHEMA (padrão main_elementary: <DBT_SCHEMA>_elementary), DBT_THREADS.
+# dev x prd: cada alvo do forge vira um output com o mesmo nome; a diferença é só o env.
+# Documentação: https://docs.elementary-data.com/oss/cli-install (elementary-data 0.24)
+elementary:
+  target: "{{ env_var('FORGE_TARGET', 'dev') }}"
+  outputs:
+    dev: &duckdb
+      type: duckdb
+      path: "{{ env_var('DUCKDB_DATABASE', 'data/warehouse.duckdb') }}"
+      schema: "{{ env_var('ELEMENTARY_SCHEMA', 'main_elementary') }}"
+      threads: "{{ env_var('DBT_THREADS', '2') | as_number }}"
+    prd: *duckdb

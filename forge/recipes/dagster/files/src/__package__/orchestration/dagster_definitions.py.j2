@@ -1,0 +1,39 @@
+# Receita dagster (orchestrator) - gerada por `forge init --recipe dagster`.
+# Como conecta: code location do Dagster (dagster>=1.8,<2); webserver e daemon o carregam com
+#   `-m [[ package ]].orchestration.dagster_definitions`. Troque o asset de exemplo pelos reais.
+# Variáveis (env do alvo no forge.yaml): DAGSTER_SCHEDULES_ACTIVE ("true" liga as agendas);
+#   os assets enxergam o env inteiro do alvo (FORGE_TARGET, segredos já resolvidos).
+# dev x prd: o código é o mesmo; a agenda nasce parada quando DAGSTER_SCHEDULES_ACTIVE não é
+#   "true" no env do alvo, então nenhuma agenda dispara de dev.
+# Documentação: https://docs.dagster.io/guides/automate/schedules (dagster 1.8)
+from __future__ import annotations
+
+import os
+
+import dagster as dg
+
+
+@dg.asset
+def example_rows(context: dg.AssetExecutionContext) -> list[int]:
+    rows = [1, 2, 3]
+    context.log.info(f"alvo={os.environ['FORGE_TARGET']} linhas={len(rows)}")
+    return rows
+
+
+example_job = dg.define_asset_job("example_job", selection=[example_rows])
+
+
+def schedule_status() -> dg.DefaultScheduleStatus:
+    if os.environ.get("DAGSTER_SCHEDULES_ACTIVE", "false").lower() == "true":
+        return dg.DefaultScheduleStatus.RUNNING
+    return dg.DefaultScheduleStatus.STOPPED
+
+
+daily = dg.ScheduleDefinition(
+    job=example_job,
+    cron_schedule="0 6 * * *",
+    execution_timezone="UTC",
+    default_status=schedule_status(),
+)
+
+defs = dg.Definitions(assets=[example_rows], jobs=[example_job], schedules=[daily])

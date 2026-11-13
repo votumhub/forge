@@ -1,0 +1,7 @@
+description: servidor e worker do Prefect 3 em compose; os jobs do bundle viram deployments <job>-<alvo>
+family: orchestrator
+env: [PREFECT_API_URL, PREFECT_PORT, PREFECT_BIND, PREFECT_WORK_POOL, PREFECT_EXTRA_PIP_PACKAGES]
+docs:
+  url: https://docs.prefect.io/v3/deploy/infrastructure-concepts/prefect-yaml
+  version: "prefect 3.8"
+provada: true

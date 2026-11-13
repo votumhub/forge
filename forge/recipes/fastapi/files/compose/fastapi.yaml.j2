@@ -1,0 +1,29 @@
+# Receita fastapi (service) - gerada por `forge init --recipe fastapi`.
+# Como conecta: usa a imagem do artifact `app` (APP_IMAGE) e roda `fastapi run` no módulo
+#   src/[[ package ]]/serving/fastapi_api.py. O Dockerfile precisa instalar as dependências:
+#   RUN pip install "fastapi[standard]>=0.115" "duckdb>=1.0"
+#   O repositório é montado só-leitura no mesmo caminho do host (${FORGE_ROOT}), então um
+#   GOLD_PATH relativo vale igual dentro e fora do container.
+# Variáveis: APP_IMAGE vem do artifact `app` (não declare no env). No env do alvo no
+#   forge.yaml: FASTAPI_PORT (porta no host), FASTAPI_BIND (padrão 127.0.0.1), FASTAPI_WORKERS
+#   (padrão 1), e as lidas pelo módulo (FASTAPI_DOCS, GOLD_PATH).
+# dev x prd: mesmo compose; porta, workers e docs mudam só pelo env do alvo.
+# Regras:
+#   - publique a porta em FASTAPI_BIND, nunca em 0.0.0.0 no host: o proxy reverso ou a rede
+#     privada é a única borda. (Dentro do container o 0.0.0.0 é só a interface do container.)
+#   - `fastapi run`, nunca --reload: reload vigia o próprio código e reinicia workers a cada
+#     evento de arquivo.
+# Documentação: https://fastapi.tiangolo.com/deployment/docker/ (fastapi 0.115)
+services:
+  fastapi:
+    image: ${APP_IMAGE}
+    command: >-
+      fastapi run /app/src/[[ package ]]/serving/fastapi_api.py
+      --host 0.0.0.0 --port 8000 --workers ${FASTAPI_WORKERS:-1}
+    env_file: ${FORGE_ENV_FILE}
+    ports:
+      - "${FASTAPI_BIND:-127.0.0.1}:${FASTAPI_PORT}:8000"
+    volumes:
+      - ${FORGE_ROOT}:${FORGE_ROOT}:ro
+    working_dir: ${FORGE_ROOT}
+    restart: unless-stopped

@@ -1,0 +1,18 @@
+# Receita soda-core (quality) - contrato de exemplo; um arquivo .yml por tabela nesta pasta.
+# Como conecta: soda_core_contracts.py verifica cada *.yml daqui contra data_source.yml.
+# Variáveis: nenhuma; o dataset é lake/<schema>/<tabela> (lake = name do data_source.yml).
+# dev x prd: o mesmo contrato nos dois alvos; o que muda é o banco apontado pelo env.
+# Regra: um contrato sem checks real verifica "verde" com zero checagens; o runner reprova
+#   contrato com 0 checks, mas escreva as checagens de verdade (missing, duplicate, invalid,
+#   row_count com threshold, schema).
+# Documentação: https://docs.soda.io/soda-v4/reference/contract-language-reference (soda-core 4.25)
+dataset: lake/main/orders
+checks:
+  - row_count:
+      threshold:
+        must_be_greater_than: 0
+columns:
+  - name: id
+    checks:
+      - missing:
+      - duplicate:

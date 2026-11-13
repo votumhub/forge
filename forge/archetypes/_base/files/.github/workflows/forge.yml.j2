@@ -1,0 +1,86 @@
+# Gerado por `forge init`. Três caminhos:
+#   PR                         -> job validar: `forge validate --strict`.
+#   push na [[ dev_branch ]]   -> job dev: deploy em dev. Etiqueta v* -> job dev: plan de prd.
+#   Run workflow (dispatch)    -> job prd: deploy em prd, só sobre uma etiqueta v*.
+# Onde cada job roda: variáveis do repositório (Settings > Secrets and variables > Actions >
+# Variables), as duas opcionais.
+#   FORGE_CI_RUNNER  rótulo do runner que valida os PRs. Sem ela, ubuntu-latest (máquina
+#                    descartável do GitHub). PR vindo de fork cai em ubuntu-latest, mas essa
+#                    guarda mora neste arquivo e o PR de fork pode editá-lo. Em repositório
+#                    público, ou não registre runner próprio, ou exija aprovação antes de
+#                    rodar workflow de PR de fork (Settings > Actions > General, aprovação
+#                    para todos os colaboradores externos).
+#   FORGE_RUNNER     rótulo do runner self-hosted instalado numa máquina que alcança o host do
+#                    deploy. Sem ela, dev e prd não rodam (numa máquina do GitHub o deploy não
+#                    teria onde entregar): o run só escreve no resumo que o deploy foi pulado.
+# O environment "production" do job prd só pede aprovação se você configurar a proteção em
+# Settings > Environments, e ela não existe em repositório privado do plano gratuito. A guarda
+# de git (prd só sobe por dispatch sobre uma etiqueta v*, e o forge recusa outra ref) protege
+# contra engano. Contra quem tem escrita no repositório ela não vale: quem escreve na branch
+# edita `targets.prd.git` no forge.yaml. Contra essa pessoa, a proteção é o environment
+# `production` do GitHub com revisor obrigatório.
+# Segredos de alvo com provider env: exponha cada um no `env:` do passo de deploy.
+name: forge
+
+on:
+  pull_request:
+  push:
+    branches: ["[[ dev_branch ]]"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-${{ github.ref }}
+  cancel-in-progress: false
+[% set setup %]      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+[% if vendored %]      - name: dependências do forge (vendorizado em ./forge)
+        run: uv venv && uv pip install "pydantic~=2.13" "jinja2~=3.1" "pyyaml~=6.0"
+[% else %]      - name: instala o forge (grupo de dependências do pyproject.toml)
+        run: uv sync --group forge
+[% endif %][% endset %][% set forge = "uv run --no-sync python -m forge" if vendored else "uv run forge" %]
+jobs:
+  validar:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.FORGE_CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+[[ setup ]]      - name: validate
+        run: [[ forge ]] validate --strict
+
+  dev:
+    if: github.event_name == 'push' && vars.FORGE_RUNNER != ''
+    runs-on: ${{ vars.FORGE_RUNNER }}
+    steps:
+[[ setup ]]      - name: deploy dev
+        if: github.ref == 'refs/heads/[[ dev_branch ]]'
+        run: [[ forge ]] deploy -t dev --yes
+      - name: plan prd
+        if: startsWith(github.ref, 'refs/tags/')
+        run: [[ forge ]] plan -t prd
+
+  prd:
+    if: github.event_name == 'workflow_dispatch' && vars.FORGE_RUNNER != ''
+    runs-on: ${{ vars.FORGE_RUNNER }}
+    environment: production
+    steps:
+[[ setup ]]      - name: deploy prd
+        run: [[ forge ]] deploy -t prd --yes
+
+  sem-runner:
+    if: github.event_name != 'pull_request' && vars.FORGE_RUNNER == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: deploy pulado
+        run: |
+          {
+            echo "### Deploy pulado"
+            echo
+            echo "A variável de repositório FORGE_RUNNER não está definida. Defina-a com o rótulo"
+            echo "do runner self-hosted que alcança o host do deploy (Settings > Secrets and"
+            echo "variables > Actions > Variables) e rode de novo."
+          } >> "$GITHUB_STEP_SUMMARY"

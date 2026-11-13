@@ -1,0 +1,7 @@
+# Job automation: deployment automation-<alvo> a cada 15 minutos; em dev a agenda nasce pausada.
+flow: src/[[ package ]]/flows.py:automation
+trigger:
+  schedule:
+    cron: "*/15 * * * *"
+    timezone: [[ timezone ]]
+work_pool: ${var.work_pool}

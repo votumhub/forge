@@ -1,0 +1,27 @@
+# Receita dagster (orchestrator) - gerada por `forge init --recipe dagster`.
+# Como conecta: configuração da instância Dagster (dagster>=1.8,<2 + dagster-postgres), montada
+#   em $DAGSTER_HOME/dagster.yaml pelo compose/dagster.yaml.
+# Variáveis (env do alvo no forge.yaml): DAGSTER_PG_PASSWORD (secret://DAGSTER_PG_PASSWORD),
+#   lida pelo próprio Dagster via `env:` - a senha nunca é escrita aqui.
+# dev x prd: arquivo igual nos dois alvos; o que muda (senha, agendas ativas) está no env do alvo.
+# runs, eventos e agendas no mesmo Postgres, nunca sqlite. Uma run por vez: numa máquina só,
+#   runs concorrentes disputam memória com o resto dos serviços.
+# Documentação: https://docs.dagster.io/deployment/oss/dagster-yaml (dagster 1.8)
+storage:
+  postgres:
+    postgres_db:
+      hostname: dagster-postgres
+      username: dagster
+      password:
+        env: DAGSTER_PG_PASSWORD
+      db_name: dagster
+      port: 5432
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1
+
+telemetry:
+  enabled: false

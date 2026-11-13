@@ -1,0 +1,8 @@
+description: lê uma API REST com token do cofre, paginação explícita e espera com backoff no 429
+family: source
+env: [REST_API_BASE_URL, REST_API_TOKEN, REST_API_PAGE_SIZE, REST_API_TIMEOUT, REST_API_MAX_RETRIES]
+requires: ["httpx>=0.28"]
+docs:
+  url: https://www.python-httpx.org/advanced/clients/
+  version: "httpx 0.28"
+provada: false

@@ -1,0 +1,7 @@
+description: observabilidade de dados do dbt com Elementary (pacote dbt fixado + profile próprio do edr lido do env)
+family: quality
+env: [DUCKDB_DATABASE, ELEMENTARY_SCHEMA, DBT_THREADS]
+docs:
+  url: https://docs.elementary-data.com/oss/quickstart/quickstart-cli-package
+  version: "elementary-data 0.24 / pacote dbt 0.24.0"
+provada: false

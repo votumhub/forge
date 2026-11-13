@@ -1,0 +1,116 @@
+# Receita airflow (orchestrator) - gerada por `forge init --recipe airflow`.
+# Como conecta: imagem oficial apache/airflow:3.3.2 (apache-airflow>=3.0,<4) com LocalExecutor e
+#   Postgres dedicado. Os quatro processos longos do Airflow 3 sobem como serviços deste compose;
+#   o repositório é montado em /opt/project (DAGs em airflow/dags, código em src/ no PYTHONPATH)
+#   e cada processo lê o envelope do alvo por ${FORGE_ENV_FILE}.
+# Variáveis (env do alvo no forge.yaml): AIRFLOW_PORT (8080), AIRFLOW_PG_PASSWORD
+#   (secret://AIRFLOW_PG_PASSWORD, só [a-zA-Z0-9], porque entra numa URL), AIRFLOW_FERNET_KEY
+#   (secret://AIRFLOW_FERNET_KEY, gere com
+#   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`),
+#   AIRFLOW_JWT_SECRET (secret://AIRFLOW_JWT_SECRET, igual para todos os processos) e
+#   AIRFLOW_DAGS_PAUSED ("true"/"false").
+# dev x prd: em dev AIRFLOW_DAGS_PAUSED=true (nenhuma agenda dispara sozinha); em prd "false".
+#   Mesmo compose nos dois alvos; muda só o env do alvo.
+# Regras que custaram caro:
+# - São quatro processos + um Postgres para um operador: use Airflow só quando o ecossistema de
+#   DAGs é o requisito; para agenda simples a receita prefect custa um processo.
+# - dag-processor é processo obrigatório desde o Airflow 3.0, nunca opcional. O triggerer sobe
+#   sempre: sem ele, operador deferrable só falha na hora de adiar, não no deploy.
+# - Metadados em Postgres com LocalExecutor, nunca o sqlite do `airflow standalone` (força
+#   SequentialExecutor e serializa todas as tasks).
+# - AIRFLOW_FERNET_KEY existe antes do scheduler subir; sem ela as senhas das connections vão
+#   em claro para o banco de metadados.
+# - O JWT secret é o mesmo em todos os processos; senão as tasks falham com assinatura inválida.
+# Login: SimpleAuthManager com o usuário admin; a senha gerada fica no volume airflow-home
+#   (`docker compose exec airflow-api-server cat /opt/airflow/simple_auth_manager_passwords.json.generated`).
+# Documentação: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html (apache-airflow 3.3)
+x-airflow-common: &airflow-common
+  image: apache/airflow:3.3.2-python[[ python ]]
+  env_file: ${FORGE_ENV_FILE}
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_PG_PASSWORD}@airflow-postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution/"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/project/airflow/dags
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "${AIRFLOW_DAGS_PAUSED:-true}"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
+    AIRFLOW__API__EXPOSE_CONFIG: "false"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    PYTHONPATH: /opt/project/src
+  volumes:
+    - ${FORGE_ROOT}:/opt/project:ro
+    - airflow-home:/opt/airflow
+  depends_on: &airflow-common-depends
+    airflow-postgres:
+      condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  airflow-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_PG_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    command: db migrate
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-api-server:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      retries: 5
+      start_period: 30s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      retries: 5
+      start_period: 30s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      retries: 5
+      start_period: 30s
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  airflow-postgres-data: {}
+  airflow-home: {}

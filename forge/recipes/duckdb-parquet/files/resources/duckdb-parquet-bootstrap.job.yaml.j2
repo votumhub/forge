@@ -1,0 +1,12 @@
+# Receita duckdb-parquet - job de gatilho deploy: prepara o diretório de staging e o arquivo gold.
+# Como conecta: o forge roda a task abaixo no momento before_up de todo deploy, no executor
+#   local, com o envelope do alvo; falha da task = release failed.
+# Variáveis: as da receita (forge recipes -o json); nenhuma é lida aqui.
+# dev x prd: igual nos dois alvos; o que muda vem do env do alvo.
+# Documentação: https://duckdb.org/docs/stable/connect/concurrency (duckdb 1.0)
+trigger:
+  deploy:
+    when: before_up
+tasks:
+  - key: bootstrap
+    run: [python, -m, [[ package ]].serving.duckdb_parquet_publish, bootstrap]

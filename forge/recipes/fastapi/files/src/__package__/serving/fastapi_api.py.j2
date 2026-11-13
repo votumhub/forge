@@ -1,0 +1,52 @@
+# Receita fastapi (service) - gerada por `forge init --recipe fastapi`.
+# Como conecta: fastapi (pip install "fastapi[standard]>=0.115", que traz o `fastapi run`);
+#   o container de compose/fastapi.yaml roda `fastapi run` neste arquivo. Rode local com
+#   `python -m forge env -t dev -- fastapi dev src/[[ package ]]/serving/fastapi_api.py`.
+# Variáveis (env do alvo no forge.yaml): FASTAPI_DOCS ("true" liga /docs e /openapi.json;
+#   padrão desligado), GOLD_PATH (opcional: arquivo DuckDB publicado pelo job de serving).
+# dev x prd: dev liga FASTAPI_DOCS; prd deixa desligado. Nada disso é decidido aqui, só no env.
+# Regras:
+#   - /docs e /openapi.json só em dev: expõem a superfície inteira da API para quem achar a porta.
+#   - o DuckDB servido é aberto com read_only=True: uma conexão gravável toma o lock e impede o
+#     job de publicação de trocar o arquivo.
+#   - uma conexão por requisição, nunca uma para a vida do processo: a publicação troca o arquivo
+#     por rename e a conexão antiga continuaria lendo o inode apagado até um restart.
+# Documentação: https://fastapi.tiangolo.com/deployment/docker/ (fastapi 0.115)
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+
+import duckdb
+from fastapi import Depends, FastAPI
+
+
+def docs_enabled() -> bool:
+    return os.environ.get("FASTAPI_DOCS", "false").lower() == "true"
+
+
+app = FastAPI(
+    title="[[ name ]]",
+    docs_url="/docs" if docs_enabled() else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if docs_enabled() else None,
+)
+
+
+def gold() -> Iterator[duckdb.DuckDBPyConnection]:
+    conn = duckdb.connect(os.environ["GOLD_PATH"], read_only=True)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "target": os.environ.get("FORGE_TARGET", "local")}
+
+
+@app.get("/gold/tables")
+def gold_tables(conn: duckdb.DuckDBPyConnection = Depends(gold)) -> list[str]:
+    rows = conn.execute("select table_name from information_schema.tables order by 1").fetchall()
+    return [row[0] for row in rows]

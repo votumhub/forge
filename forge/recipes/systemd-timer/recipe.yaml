@@ -1,0 +1,7 @@
+description: agenda o pipeline por timer do systemd de usuário, rodando dentro do envelope do alvo sem root
+family: orchestrator
+env: [FORGE_DEPLOY_TARGET]
+docs:
+  url: https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html
+  version: "systemd 252"
+provada: false

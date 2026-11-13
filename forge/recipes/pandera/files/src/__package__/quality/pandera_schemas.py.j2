@@ -1,0 +1,49 @@
+# Receita pandera (quality) - gerada por `forge init --recipe pandera`.
+# Como conecta: pandera com pandas (pip install "pandera[pandas]>=0.24,<1"); módulo chamado
+#   pelo pipeline logo depois de cada leitura/transformação: `validate(df, MeuSchema)`.
+# Variáveis (env do alvo no forge.yaml): PANDERA_LEVEL (warning ou error).
+# dev x prd: em dev PANDERA_LEVEL=warning registra as falhas e deixa seguir; em prd error
+#   levanta SchemaErrors e para o pipeline. A diferença mora só no env do alvo.
+# Regras que custaram caro:
+# - Todo DataFrameModel declara Config.strict = True: sem isso, coluna que não devia existir
+#   passa calada, e pegar essa coluna é metade do valor de um schema.
+# - validate() sempre com lazy=True: o padrão para na primeira falha e esconde as outras,
+#   virando ciclo corrige-roda-corrige que uma rodada lazy mostraria de uma vez.
+# - coerce=True converte a coluna em silêncio em vez de falhar: use só na coluna cujo tipo de
+#   origem sabidamente oscila, nunca como padrão do schema inteiro.
+# Documentação: https://pandera.readthedocs.io/en/stable/dataframe_models.html (pandera 0.24)
+from __future__ import annotations
+
+import logging
+import os
+
+import pandas as pd
+import pandera.pandas as pa
+from pandera.errors import SchemaErrors
+from pandera.typing import Series
+
+logger = logging.getLogger(__name__)
+
+
+class ExampleSchema(pa.DataFrameModel):
+    id: Series[int] = pa.Field(ge=0, unique=True)
+    name: Series[str] = pa.Field(nullable=False)
+
+    class Config:
+        strict = True
+
+
+def _fail_on_error() -> bool:
+    return os.environ.get("PANDERA_LEVEL", "error") == "error"
+
+
+def validate(df: pd.DataFrame, schema: type[pa.DataFrameModel] = ExampleSchema) -> pd.DataFrame:
+    """Valida tudo de uma vez; em `error` levanta, em `warning` registra cada falha e segue."""
+    try:
+        return schema.validate(df, lazy=True)
+    except SchemaErrors as error:
+        if _fail_on_error():
+            raise
+        logger.warning("%s: %d falha(s)\n%s", schema.__name__, len(error.failure_cases),
+                       error.failure_cases.to_string())
+        return df

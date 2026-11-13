@@ -1,0 +1,13 @@
+# Receita prefect (orchestrator) - serviço do forge para o servidor e o worker do Prefect.
+# Como conecta: o forge sobe compose/prefect.yaml com -p <project> e --env-file do alvo,
+#   recria o worker a cada release (pega env e código novos) e espera a API responder.
+# Variáveis: PREFECT_PORT (padrão 4200); o resto está no topo de compose/prefect.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.prefect.io/v3/api-ref/rest-api/server/root/health-check
+compose:
+  - compose/prefect.yaml
+release_services:
+  - prefect-worker
+health:
+  url: http://localhost:${PREFECT_PORT:-4200}/api/health
+  timeout: 180

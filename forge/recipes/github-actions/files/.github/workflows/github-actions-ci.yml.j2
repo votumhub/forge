@@ -1,0 +1,47 @@
+# Receita github-actions (ci) - gerada por `forge init --recipe github-actions`.
+# Como conecta: workflow de testes, complementar ao forge.yml (que valida o manifesto e faz
+#   deploy). Roda em todo PR e em push para o branch de desenvolvimento: instala as
+#   dependências pelo lockfile do uv e roda o pytest. Não lê env de alvo: teste não depende de
+#   segredo nem de infraestrutura (mocke o que for externo).
+# Variáveis (env do alvo no forge.yaml): nenhuma. Só a variável de repositório FORGE_CI_RUNNER
+#   (opcional, a mesma do job validar do forge.yml): sem ela, ubuntu-latest; PR vindo de fork
+#   roda sempre em ubuntu-latest, para código de terceiro nunca tocar máquina sua.
+# dev x prd: não há alvo aqui; os dois alvos recebem o mesmo código já testado. O que muda
+#   entre alvos fica no env de cada alvo no forge.yaml.
+# Regras:
+#   - concurrency com cancel-in-progress true: dois pushes no mesmo branch nunca disputam a
+#     mesma verificação.
+#   - `permissions: contents: read`: o token do workflow só lê o repositório.
+#   - toda action de terceiros fixada pelo SHA do commit, com a versão em comentário.
+#   - `uv sync --frozen`: o CI nunca atualiza o lockfile em silêncio nem passa com dependência
+#     que derivou. Sem uv.lock no repositório, o passo cai para pip + pytest.
+# Documentação: https://docs.astral.sh/uv/guides/integration/github/
+name: github-actions-ci
+
+on:
+  pull_request:
+  push:
+    branches: ["[[ dev_branch ]]"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-actions-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.FORGE_CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "[[ python ]]"
+      - name: dependências
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen; else uv venv && uv pip install pytest; fi
+      - name: pytest
+        env:
+          PYTHONPATH: src
+        run: uv run --no-sync pytest -q

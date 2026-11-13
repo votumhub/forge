@@ -1,0 +1,8 @@
+description: n8n em compose e um script que cria/atualiza pela API pública o workflow agendado do alvo e o publica ou desliga
+family: orchestrator
+env: [N8N_PORT, N8N_ENCRYPTION_KEY, N8N_TIMEZONE, N8N_URL, N8N_API_KEY, N8N_SCHEDULE_ACTIVE, N8N_CRON, N8N_PIPELINE_URL]
+requires: ["httpx"]
+docs:
+  url: https://docs.n8n.io/api/api-reference/
+  version: "n8n 2.40.5"
+provada: false

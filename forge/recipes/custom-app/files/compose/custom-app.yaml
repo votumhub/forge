@@ -1,0 +1,26 @@
+# Receita custom-app (service) - gerada por `forge init --recipe custom-app`.
+# Como conecta: sobe uma aplicação que o forge não escreveu a partir de uma imagem pronta
+#   (CUSTOM_APP_IMAGE) e do comando de produção dela (CUSTOM_APP_COMMAND), lendo o envelope do
+#   alvo por ${FORGE_ENV_FILE}. Se a imagem é construída neste repositório, declare-a em
+#   `artifacts:` do forge.yaml com `env: CUSTOM_APP_IMAGE` e o forge preenche o valor.
+# Variáveis (env do alvo no forge.yaml): CUSTOM_APP_IMAGE, CUSTOM_APP_COMMAND (comando de
+#   produção), CUSTOM_APP_PORT (porta no host), CUSTOM_APP_INTERNAL_PORT (porta em que a app escuta
+#   dentro do container), CUSTOM_APP_HEALTH_PATH (padrão /health) e CUSTOM_APP_USER (uid:gid,
+#   padrão 1000:1000).
+# dev x prd: mesmo compose; imagem, porta e comando de cada alvo vêm do env do alvo.
+# Regras que custaram caro:
+# - Nunca roda como root: CUSTOM_APP_USER sempre tem valor; app escrita à mão não é exceção.
+# - CUSTOM_APP_COMMAND nunca é servidor de desenvolvimento ou com auto-reload (ex.: `flask run`,
+#   `uvicorn --reload`, `npm run dev`); o forge não enxerga dentro da string para barrar isso.
+# - Um único supervisor por app: se o bundle já tem resources/app.service.yaml servindo a mesma
+#   app, não use esta receita; dois serviços na mesma porta ficam derrubando um ao outro.
+# Documentação: https://docs.docker.com/reference/compose-file/services/ (Compose Specification)
+services:
+  custom-app:
+    image: ${CUSTOM_APP_IMAGE}
+    command: ${CUSTOM_APP_COMMAND}
+    user: "${CUSTOM_APP_USER:-1000:1000}"
+    env_file: ${FORGE_ENV_FILE}
+    ports:
+      - "${CUSTOM_APP_PORT}:${CUSTOM_APP_INTERNAL_PORT}"
+    restart: unless-stopped

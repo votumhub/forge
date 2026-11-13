@@ -1,0 +1,15 @@
+# Receita custom-app (service) - serviço do forge para a aplicação trazida de fora.
+# Como conecta: o forge sobe compose/custom-app.yaml com -p <project> e --env-file do alvo,
+#   recria o container a cada release e só dá o deploy por feito quando a rota de saúde responde:
+#   o forge não escreveu esta app, então a única coisa em que confia é o que ela prova na URL.
+# Variáveis (env do alvo no forge.yaml): CUSTOM_APP_PORT e CUSTOM_APP_HEALTH_PATH; o resto está
+#   no topo de compose/custom-app.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://docs.docker.com/reference/compose-file/services/#healthcheck (Compose Specification)
+compose:
+  - compose/custom-app.yaml
+release_services:
+  - custom-app
+health:
+  url: http://localhost:${CUSTOM_APP_PORT}${CUSTOM_APP_HEALTH_PATH:-/health}
+  timeout: 120

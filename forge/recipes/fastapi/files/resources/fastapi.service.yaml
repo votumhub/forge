@@ -1,0 +1,13 @@
+# Receita fastapi (service) - serviço do forge para a API.
+# Como conecta: sobe compose/fastapi.yaml; `fastapi` é recriado a cada release (imagem e env
+#   novos) e o forge espera /health responder.
+# Variáveis: FASTAPI_PORT; o resto está no topo de compose/fastapi.yaml.
+# dev x prd: igual nos dois; a diferença é o env do alvo.
+# Documentação: https://fastapi.tiangolo.com/deployment/docker/ (fastapi 0.115)
+compose:
+  - compose/fastapi.yaml
+release_services:
+  - fastapi
+health:
+  url: http://localhost:${FASTAPI_PORT}/health
+  timeout: 60

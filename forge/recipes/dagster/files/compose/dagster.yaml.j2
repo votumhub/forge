@@ -1,0 +1,60 @@
+# Receita dagster (orchestrator) - gerada por `forge init --recipe dagster`.
+# Como conecta: imagem local construída de dagster/dagster.Dockerfile (dagster>=1.8,<2,
+#   dagster-webserver, dagster-postgres); webserver e daemon carregam o code location
+#   [[ package ]].orchestration.dagster_definitions com o repositório montado em /opt/project
+#   (src/ no PYTHONPATH) e leem o envelope do alvo por ${FORGE_ENV_FILE}. A instância
+#   (dagster/dagster.yaml) guarda runs, eventos e agendas no Postgres deste compose.
+# Variáveis (env do alvo no forge.yaml): DAGSTER_PORT (3000 no host),
+#   DAGSTER_BIND (padrão 127.0.0.1; 0.0.0.0 só atrás de autenticação), DAGSTER_PG_PASSWORD
+#   (secret://DAGSTER_PG_PASSWORD) e DAGSTER_SCHEDULES_ACTIVE ("true"/"false").
+# dev x prd: em dev DAGSTER_SCHEDULES_ACTIVE=false (nenhuma agenda dispara de dev); em prd
+#   "true". Mesmo compose nos dois alvos; muda só o env do alvo.
+# Regras que custaram caro:
+# - O daemon é processo próprio, separado do webserver: é ele que dispara agendas e sensores,
+#   e perdê-lo é silencioso (a UI continua no ar).
+# - Instância em Postgres em todo alvo, nunca sqlite.
+# - Mudou dependência no Dockerfile? `docker compose build` antes do próximo release.
+# Documentação: https://docs.dagster.io/deployment/oss/deployment-options/docker (dagster 1.8)
+x-dagster-common: &dagster-common
+  build:
+    context: ${FORGE_ROOT}/dagster
+    dockerfile: dagster.Dockerfile
+  image: [[ name ]]-dagster:local
+  env_file: ${FORGE_ENV_FILE}
+  volumes:
+    - ${FORGE_ROOT}:/opt/project:ro
+    - dagster-home:/opt/dagster/home
+    - ${FORGE_ROOT}/dagster/dagster.yaml:/opt/dagster/home/dagster.yaml:ro
+  depends_on:
+    dagster-postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  dagster-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: ${DAGSTER_PG_PASSWORD}
+      POSTGRES_DB: dagster
+    volumes:
+      - dagster-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dagster"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  dagster-webserver:
+    <<: *dagster-common
+    command: dagster-webserver -h 0.0.0.0 -p 3000 -m [[ package ]].orchestration.dagster_definitions
+    ports:
+      - "${DAGSTER_BIND:-127.0.0.1}:${DAGSTER_PORT:-3000}:3000"
+
+  dagster-daemon:
+    <<: *dagster-common
+    command: dagster-daemon run -m [[ package ]].orchestration.dagster_definitions
+
+volumes:
+  dagster-postgres-data: {}
+  dagster-home: {}

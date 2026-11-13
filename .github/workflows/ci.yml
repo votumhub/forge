@@ -1,0 +1,47 @@
+# Onde roda: a variável de repositório FORGE_CI_RUNNER (Settings > Secrets and variables >
+# Actions > Variables) leva o rótulo de um runner próprio. Sem ela, ubuntu-latest (máquina
+# descartável do GitHub). PR de fork cai em ubuntu-latest, mas essa guarda mora neste arquivo e
+# o PR de fork pode editá-lo: em repositório público, ou não registre runner próprio, ou exija
+# aprovação antes de rodar workflow de PR de fork (Settings > Actions > General, aprovação
+# para todos os colaboradores externos).
+name: ci
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.FORGE_CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: instalar uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.29"
+          enable-cache: true
+
+      - name: o lock acompanha o pyproject
+        run: uv lock --check
+
+      - name: sincronizar
+        run: uv sync --frozen
+
+      - name: formato
+        run: uvx ruff@0.15.0 format --check forge tests
+
+      - name: lint
+        run: uvx ruff@0.15.0 check forge tests
+
+      - name: testes
+        run: uv run --frozen pytest -q

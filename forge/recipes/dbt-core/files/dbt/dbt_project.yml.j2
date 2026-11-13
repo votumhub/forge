@@ -1,0 +1,26 @@
+# Receita dbt-core (transform) - gerada por `forge init --recipe dbt-core`.
+# Como conecta: dbt-core + dbt-duckdb (pip install "dbt-core>=1.8" "dbt-duckdb>=1.8"); o
+#   profile ao lado (profiles.yml) lê tudo do env, então rode sempre dentro do envelope:
+#   python -m forge env -t dev -- dbt build --project-dir dbt --profiles-dir dbt
+# Variáveis: veja o topo de profiles.yml.
+# dev x prd: o alvo do dbt é o FORGE_TARGET; o que muda (arquivo do banco, schema,
+#   threads) mora no env do alvo no forge.yaml.
+# Regra: cada modelo vive em models/<camada>/ (staging, intermediate, marts); o dbt-duckdb
+#   não separa camadas sozinho.
+# Documentação: https://docs.getdbt.com/reference/dbt_project.yml (dbt-core 1.8)
+name: "[[ package ]]"
+version: "1.0.0"
+profile: "[[ package ]]"
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target"]
+
+models:
+  "[[ package ]]":
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

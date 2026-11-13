@@ -1,0 +1,9 @@
+# Job ingest: vira o deployment ingest-<alvo> no Prefect; em dev a agenda nasce pausada.
+flow: src/[[ package ]]/flows.py:ingest
+parameters:
+  days: 1
+trigger:
+  schedule:
+    cron: "0 6 * * *"
+    timezone: [[ timezone ]]
+work_pool: ${var.work_pool}

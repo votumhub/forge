@@ -1,0 +1,29 @@
+# Receita n8n (orchestrator) - gerada por `forge init --recipe n8n`.
+# Como conecta: imagem n8nio/n8n com os dados (workflows, credenciais) num volume nomeado; o
+#   workflow do bundle entra pela API pública via src/<pacote>/orchestration/n8n_apply.py.
+# Versão fixada: docker.n8n.io/n8nio/n8n:2.40.5, a estável (tags latest e stable) em
+#   2026-09-23. Subir de versão é decisão: troque a tag aqui e prove.
+# Variáveis (env do alvo no forge.yaml): N8N_PORT (5678), N8N_ENCRYPTION_KEY (segredo: secret://N8N_ENCRYPTION_KEY),
+#   N8N_TIMEZONE (ex.: America/Sao_Paulo).
+# dev x prd: mesmo arquivo; porta e chave vêm do env do alvo. Em prd o volume n8n-data
+#   entra no backup.
+# N8N_ENCRYPTION_KEY existe antes do primeiro start e nunca muda: ela cifra as credenciais
+#   salvas; trocada, toda credencial precisa ser recriada. A API key (N8N_API_KEY) só existe
+#   depois do primeiro start: crie em Settings > n8n API e grave no segredo do alvo.
+# Documentação: https://docs.n8n.io/hosting/installation/docker/
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.40.5
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?}
+      GENERIC_TIMEZONE: ${N8N_TIMEZONE:-UTC}
+      TZ: ${N8N_TIMEZONE:-UTC}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+volumes:
+  n8n-data: {}

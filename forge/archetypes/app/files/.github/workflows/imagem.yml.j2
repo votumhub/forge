@@ -1,0 +1,63 @@
+# Gerado por `forge init`. Publica a imagem do serviço a cada versão etiquetada (vX.Y.Z): é a
+# imagem que o alvo prd do forge.yaml puxa (artifacts.app.pull), com a tag do git como tag da
+# imagem, o mesmo valor que o forge dá a ${bundle.release} num HEAD etiquetado. Subir prd continua
+# sendo ordem humana (forge deploy -t prd --yes, ou o workflow forge por dispatch); este fluxo só
+# publica, para amd64 e arm64, porque a máquina de produção pode ser de qualquer uma das duas.
+name: imagem da versão
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: imagem-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRO: [[ registry.split("/")[0] ]]
+  IMAGEM: [[ (registry.split("/")[1:] + [name]) | join("/") ]]
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRO }}
+[% if registry.startswith("ghcr.io") %]          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+[% else %]          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+[% endif %]      - name: construir e publicar
+        id: imagem
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.REGISTRO }}/${{ env.IMAGEM }}:${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: resumo
+        env:
+          DIGEST: ${{ steps.imagem.outputs.digest }}
+          VERSAO: ${{ github.ref_name }}
+        run: |
+          {
+            echo "### Imagem publicada"
+            echo
+            echo "- tag: \`${REGISTRO}/${IMAGEM}:${VERSAO}\`"
+            echo "- digest: \`${REGISTRO}/${IMAGEM}@${DIGEST}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

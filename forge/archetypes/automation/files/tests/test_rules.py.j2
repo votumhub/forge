@@ -1,0 +1,9 @@
+from [[ package ]].rules import decide
+
+
+def test_decide_drops_repeats_and_keeps_order() -> None:
+    assert decide(["b", "a", "b", "c"]) == ["b", "a", "c"]
+
+
+def test_decide_respects_limit() -> None:
+    assert decide(["a", "b", "c"], limit=2) == ["a", "b"]

@@ -1,0 +1,58 @@
+# Receita mysql (source) - gerada por `forge init --recipe mysql`.
+# Como conecta: PyMySQL (pip install "pymysql>=1.1,<2") com um usuário que só tem SELECT;
+#   nunca um usuário que escreve. Cursor sem buffer (SSDictCursor): a tabela não cabe inteira
+#   na memória do extrator.
+# Variáveis (env do alvo no forge.yaml): MYSQL_HOST, MYSQL_PORT (3306), MYSQL_DATABASE,
+#   MYSQL_USER, MYSQL_PASSWORD (segredo: secret://MYSQL_PASSWORD), MYSQL_REQUIRE_TLS,
+#   MYSQL_SSL_CA (opcional: caminho do CA; com ele o certificado do servidor é verificado).
+# dev x prd: em dev MYSQL_REQUIRE_TLS=false serve para banco local; em prd true, porque a
+#   origem vive fora da rede. A diferença mora no env do alvo, nunca aqui.
+# Tabela sem coluna incremental natural (updated_at ou id crescente) é recarga cheia por
+#   decisão declarada, não descoberta quando a carga ficar lenta.
+# Documentação: https://pymysql.readthedocs.io/en/latest/modules/connections.html (pymysql 1.1)
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from typing import Any
+
+import pymysql
+import pymysql.cursors
+
+
+def _ssl() -> dict[str, Any] | None:
+    if os.environ.get("MYSQL_REQUIRE_TLS", "true") != "true":
+        return None
+    return {"ca": os.environ.get("MYSQL_SSL_CA")}
+
+
+def connect() -> pymysql.connections.Connection:
+    return pymysql.connect(
+        host=os.environ["MYSQL_HOST"],
+        port=int(os.environ.get("MYSQL_PORT", "3306")),
+        database=os.environ["MYSQL_DATABASE"],
+        user=os.environ["MYSQL_USER"],
+        password=os.environ["MYSQL_PASSWORD"],
+        ssl=_ssl(),
+        connect_timeout=30,
+        cursorclass=pymysql.cursors.SSDictCursor,
+    )
+
+
+def _quote(identifier: str) -> str:
+    return "`" + identifier.replace("`", "``") + "`"
+
+
+def read_table(
+    table: str, cursor_column: str | None = None, since: Any = None
+) -> Iterator[dict[str, Any]]:
+    """Lê a tabela inteira ou só o que passou de `since` em `cursor_column` (incremental)."""
+    query = f"SELECT * FROM {_quote(table)}"
+    params: tuple[Any, ...] = ()
+    if cursor_column is not None and since is not None:
+        column = _quote(cursor_column)
+        query += f" WHERE {column} > %s ORDER BY {column}"
+        params = (since,)
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute(query, params)
+        yield from cursor

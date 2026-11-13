@@ -1,0 +1,7 @@
+description: Metabase em compose com banco de aplicação Postgres (nunca H2), versão fixada e chave de criptografia estável
+family: bi
+env: [METABASE_PORT, METABASE_APP_DB_HOST, METABASE_APP_DB_PORT, METABASE_APP_DB_NAME, METABASE_APP_DB_USER, METABASE_APP_DB_PASSWORD, METABASE_ENCRYPTION_SECRET_KEY]
+docs:
+  url: https://www.metabase.com/docs/latest/installation-and-operation/configuring-application-database
+  version: "metabase v0.63.18.1"
+provada: false

@@ -1,0 +1,29 @@
+forge: 2
+
+bundle:
+  name: [[ name ]]
+
+include:
+  - resources/*.yaml
+
+variables:
+  work_pool:
+    description: work pool do Prefect (já existente) que executa a automação
+    default: [[ work_pool ]]
+
+env:
+  PREFECT_API_URL: secret://PREFECT_API_URL
+
+targets:
+  dev:
+    mode: development
+    default: true
+    secrets:
+      provider: dotenv
+      path: .forge/secrets/dev.env
+  prd:
+    mode: production
+    git:
+      tag: "v*"
+    secrets:
+      provider: env
