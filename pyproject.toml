@@ -1,6 +1,6 @@
 [project]
 name = "forge"
-version = "3.0.0"
+version = "3.0.1"
 description = "Leva um repositório Python do zero ao deploy em dev e prd por docker compose, a partir de um forge.yaml."
 readme = "README.md"
 license = "MIT"
@@ -31,9 +31,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/votumhub/forge"
-Documentation = "https://github.com/votumhub/forge/blob/v3.0.0/docs/referencia.md"
+Documentation = "https://github.com/votumhub/forge/blob/v3.0.1/docs/referencia.md"
 Issues = "https://github.com/votumhub/forge/issues"
-Changelog = "https://github.com/votumhub/forge/blob/v3.0.0/CHANGELOG.md"
+Changelog = "https://github.com/votumhub/forge/blob/v3.0.1/CHANGELOG.md"
 
 [project.scripts]
 forge = "forge.cli:main"

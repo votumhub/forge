@@ -96,7 +96,9 @@ vira aviso). Falha depois que o up começou: em prd o forge volta sozinho à
 release anterior e termina em erro mesmo assim (se o state está ilegível ou não grava o desfecho, ele não
 volta e diz onde o serviço ficou); em dev ele não volta e a mensagem traz o
 `forge rollback -t dev`. Depois de um `destroy`, o rollback em dev não acha mais a imagem antiga:
-rode um deploy novo.
+rode um deploy novo. Se um serviço monta código do projeto (`./src:/app/src`), o rollback faz
+checkout do commit da release de volta (HEAD destacado: volte à branch antes do próximo deploy) e
+recusa se houver mudança não commitada.
 
 ## CI
 

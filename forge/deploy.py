@@ -1,9 +1,9 @@
-"""Orquestrador: lock -> checks -> jobs before_deploy -> artifacts -> segredos -> storage
-ensure -> jobs before_up -> up -> health -> routes -> jobs do Prefect -> jobs after_up ->
-record -> limpeza das imagens construídas que o rollback não alcança. Falha nunca grava ok; o
-lock sai sempre (ou vira aviso). `deploy_and_recover` é o verbo deploy: em production, a falha
-que já mexeu no ar volta sozinha à release anterior pelo mesmo caminho do rollback, salvo com o
-state ilegível ou que não gravou a tentativa."""
+"""Orquestrador: lock -> checks -> código montado (só no rollback) -> jobs before_deploy ->
+artifacts -> segredos -> storage ensure -> jobs before_up -> up -> health -> routes -> jobs do
+Prefect -> jobs after_up -> record -> limpeza das imagens construídas que o rollback não alcança.
+Falha nunca grava ok; o lock sai sempre (ou vira aviso). `deploy_and_recover` é o verbo deploy:
+em production, a falha que já mexeu no ar volta sozinha à release anterior pelo mesmo caminho do
+rollback, salvo com o state ilegível ou que não gravou a tentativa."""
 
 from __future__ import annotations
 
@@ -21,17 +21,22 @@ from forge.artifacts import artifact_env, remove_built_images, resolve_artifacts
 from forge.contracts import Adapter, DeployContext, Executor
 from forge.envelope import envelope_for, forge_values, secret_refs, write_envelope
 from forge.errors import ForgeError
+from forge.gitinfo import read_git
 from forge.load import Loaded
 from forge.model import DeployMoment, Job, Service
+from forge.mounts import restore_code
 from forge.policy import compose_service_names, example_registry, paths_env
 from forge.state import (
     Release,
     State,
     StateError,
+    Tree,
     deploy_lock,
     now_iso,
     read_state,
+    read_trees,
     record,
+    record_tree,
     state_file,
 )
 from forge.tasks import run_deploy_jobs
@@ -47,18 +52,33 @@ class DeployFailedError(ForgeError):
     pass
 
 
+@dataclass(frozen=True)
+class Back:
+    """A release de volta e como carregar o bundle dela depois que o checkout muda a árvore."""
+
+    release: Release
+    reload: Callable[[str], Loaded]
+
+
 @dataclass
 class Attempt:
-    """`given` dado = rollback. `live` vira True quando o primeiro serviço começa a subir: daí
-    em diante a falha deixou o ar diferente do que estava. `unrecorded` guarda o desfecho que o
-    state recusou gravar: o histórico dele deixa de dizer onde o ar está."""
+    """`back` dado = rollback. `branch` é a branch do checkout antes da tentativa: depois de um
+    rollback que destaca o HEAD, é para ela que se volta. `live` vira True quando o primeiro
+    serviço começa a subir: daí em diante a falha deixou o ar diferente do que estava.
+    `unrecorded` guarda o desfecho que o state recusou gravar: o histórico dele deixa de dizer
+    onde o ar está."""
 
-    given: Mapping[str, str] | None
+    back: Back | None = None
+    branch: str | None = None
+    back_dirty: bool | None = None
+    given: Mapping[str, str] | None = None
     pinned: dict[str, str] = field(default_factory=dict)
     live: bool = False
     unrecorded: Literal["ok", "failed"] | None = None
 
     def __post_init__(self) -> None:
+        if self.back is not None:
+            self.given = self.back.release.digests
         self.pinned.update(self.given or {})
 
 
@@ -105,7 +125,8 @@ def production_checks(loaded: Loaded, approved: bool) -> None:
         git.branch or "", rule.branch
     ):
         raise ProductionCheckError(
-            f"alvo {name} sai da branch {rule.branch}; HEAD está em {git.branch or 'detached'}"
+            f"alvo {name} sai da branch {rule.branch}; HEAD está em "
+            f"{git.branch or 'detached'}{_return_hint(loaded)}"
         )
     if rule.tag is not None and not fnmatch.fnmatchcase(git.tag or "", rule.tag):
         found = f"tem a tag {git.tag}" if git.tag else "não tem tag exata"
@@ -117,6 +138,26 @@ def production_checks(loaded: Loaded, approved: bool) -> None:
         )
     for example in example_registry(loaded):
         raise ProductionCheckError(f"{example.where}: {example.message}")
+
+
+def _return_hint(loaded: Loaded) -> str:
+    """HEAD destacado depois de um rollback: a branch de onde o checkout saiu está no state."""
+    branch = _left_branch(loaded)
+    if loaded.git is None or loaded.git.branch is not None or branch is None:
+        return ""
+    return (
+        f". O rollback deixa o HEAD destacado no commit da release: rode git checkout "
+        f"{branch} e o deploy de novo"
+    )
+
+
+def _left_branch(loaded: Loaded) -> str | None:
+    """A branch do deploy ok mais recente que a registrou."""
+    try:
+        trees = read_trees(loaded.state_path, loaded.target_name)
+    except StateError:
+        return None
+    return next((t.branch for t in reversed(trees.values()) if t.branch), None)
 
 
 def context(
@@ -162,11 +203,12 @@ def deploy(
     adapters: Adapters | None = None,
     report: Report = print,
 ) -> Release:
-    """`digests` dado = rollback: re-aplica as imagens da release sem construir nem puxar."""
+    """`digests` dado: re-aplica essas imagens sem construir nem puxar, e não traz o código
+    montado de volta; reaplicar uma release inteira é o `rollback`."""
     return _attempt(
         loaded,
         executor,
-        Attempt(digests),
+        Attempt(given=digests),
         approved=approved,
         force_unlock=force_unlock,
         adapters=adapters,
@@ -189,6 +231,8 @@ def _attempt(
         if loaded.target.mode == "production":
             production_checks(loaded, approved)
             report("checks de production ok")
+        attempt.branch = loaded.git.branch if loaded.git else None
+        loaded = _code_back(loaded, attempt, report)
         try:
             _steps(
                 loaded,
@@ -203,9 +247,38 @@ def _attempt(
             raise
         release = _record(loaded, "ok", attempt)
         report(f"release {release.id} ok")
-        for line in _clean_images(loaded, executor):
+        for line in [
+            *_record_tree(loaded, release, attempt),
+            *_clean_images(loaded, executor),
+        ]:
             report(line)
         return release
+
+
+def _code_back(loaded: Loaded, attempt: Attempt, report: Report) -> Loaded:
+    """No rollback, o código montado volta ao commit da release; com o checkout mudado, o
+    bundle (serviços, compose, jobs) se carrega de novo da árvore dela."""
+    back = attempt.back
+    if back is None:
+        return loaded
+    restored = restore_code(loaded, back.release, report)
+    attempt.back_dirty = restored.dirty
+    if not restored.moved:
+        return loaded
+    report(f"bundle carregado de novo do commit da release {back.release.id}")
+    return _same_state(back.reload(back.release.id), loaded, report)
+
+
+def _same_state(again: Loaded, before: Loaded, report: Report) -> Loaded:
+    """O state e a trava ficam onde a tentativa os abriu, mesmo que a release declare outro."""
+    if again.state_path == before.state_path:
+        return again
+    report(
+        f"state continua em {before.state_path.as_posix()} (a release declara "
+        f"{again.state_path.as_posix()})"
+    )
+    target = again.target.model_copy(update={"state_path": before.target.state_path})
+    return dataclasses.replace(again, target=target)
 
 
 def _record_failure(loaded: Loaded, attempt: Attempt, error: BaseException) -> None:
@@ -311,9 +384,10 @@ def _up(ctx: DeployContext, loaded: Loaded, adapters: Adapters, report: Report) 
 def _record(
     loaded: Loaded, status: Literal["ok", "failed"], attempt: Attempt
 ) -> Release:
+    git, back = loaded.git, attempt.back
     release = Release(
         id=loaded.release,
-        git_sha=loaded.git.sha if loaded.git else None,
+        git_sha=back.release.git_sha if back else (git.sha if git else None),
         at=now_iso(),
         status=status,
         digests=dict(attempt.pinned),
@@ -324,6 +398,18 @@ def _record(
         attempt.unrecorded = status
         raise
     return release
+
+
+def _record_tree(loaded: Loaded, release: Release, attempt: Attempt) -> list[str]:
+    """Depois do state, e nunca derruba a release que já subiu: sem a entrada, o rollback para
+    ela trata a árvore como desconhecida."""
+    git = loaded.git
+    dirty = attempt.back_dirty if attempt.back else bool(git and git.dirty)
+    tree = Tree(dirty=dirty, branch=attempt.branch)
+    try:
+        return record_tree(loaded.state_path, loaded.target_name, release, tree)
+    except StateError as error:
+        return [f"árvore da release {release.id} não registrada: {error}"]
 
 
 def rollback(
@@ -337,16 +423,16 @@ def rollback(
     report: Report = print,
 ) -> Release:
     """`reload(id)` carrega o bundle de novo com a release de volta: `${bundle.release}` no env
-    e nos resources passa a valer o id dela, não o da árvore atual."""
+    e nos resources passa a valer o id dela, não o da árvore atual. O código montado do disco
+    volta ao commit dela antes de qualquer passo, e o bundle se carrega de novo da árvore dela."""
     candidate = read_state(loaded.state_path, loaded.target_name).rollback_candidate()
     report(f"voltando para {candidate.id} ({candidate.at})")
-    again = reload(candidate.id)
-    return deploy(
-        again,
+    return _attempt(
+        reload(candidate.id),
         executor,
+        Attempt(Back(candidate, reload)),
         approved=approved,
         force_unlock=force_unlock,
-        digests=candidate.digests,
         adapters=adapters,
         report=report,
     )
@@ -438,8 +524,19 @@ class Recovery:
             )
         return DeployFailedError(
             f"{failed}\nvoltei sozinho para a release {back.id}: o serviço está de pé "
-            f"nela. Corrija e rode forge deploy -t {target} --yes de novo"
+            f"nela. {_detached(self.loaded)}Corrija e rode forge deploy -t "
+            f"{target} --yes de novo"
         )
+
+
+def _detached(loaded: Loaded) -> str:
+    git, branch = read_git(loaded.root), _left_branch(loaded)
+    if git is None or git.branch is not None or branch is None:
+        return ""
+    return (
+        f"O checkout ficou destacado no commit {git.short} da release: rode git checkout "
+        f"{branch} antes. "
+    )
 
 
 def _unreadable(loaded: Loaded, error: StateError) -> str:

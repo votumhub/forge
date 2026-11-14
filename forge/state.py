@@ -1,4 +1,6 @@
-"""State por alvo (`<state_path>/<alvo>.json`) e lock de deploy (`<state_path>/.lock`)."""
+"""State por alvo (`<state_path>/<alvo>.json`), a árvore de cada release
+(`<state_path>/<alvo>.trees.json`) e lock de deploy (`<state_path>/.lock`). Os leitores
+ignoram campo que não conhecem: o que um forge mais novo acrescentar não os quebra."""
 
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from forge.errors import ForgeError, read_utf8
 
@@ -35,7 +37,7 @@ class LockError(ForgeError):
 
 
 class Release(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     id: str
     git_sha: str | None
@@ -44,8 +46,24 @@ class Release(BaseModel):
     digests: dict[str, str] = {}
 
 
+class Tree(BaseModel):
+    """Como estava a árvore no deploy ok de uma release: `dirty` com mudança não commitada,
+    `branch` a branch do checkout antes da tentativa. None = desconhecido. `git_sha` e `at`
+    amarram a entrada ao registro do state: outro deploy com o mesmo id não a herda."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    git_sha: str | None = None
+    at: str | None = None
+    dirty: bool | None = None
+    branch: str | None = None
+
+
+TREES = TypeAdapter(dict[str, Tree])
+
+
 class State(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     target: str
     current: str | None = None
@@ -125,6 +143,51 @@ def record(state_path: Path, target: str, release: Release) -> State:
         state_file(state_path, target), state.model_dump_json(indent=2) + "\n"
     )
     return state
+
+
+def trees_file(state_path: Path, target: str) -> Path:
+    return state_path / f"{target}.trees.json"
+
+
+def read_trees(state_path: Path, target: str) -> dict[str, Tree]:
+    """Release id -> árvore, da mais antiga para a mais recente; sem o arquivo, vazio."""
+    path = trees_file(state_path, target)
+    if not path.is_file():
+        return {}
+    try:
+        return TREES.validate_json(read_utf8(path))
+    except ForgeError as error:
+        raise StateError(str(error)) from error
+    except ValidationError as error:
+        raise StateError(
+            f"{path}: arquivo ilegível ({error.error_count()} erro(s))"
+        ) from error
+
+
+def tree_of(trees: dict[str, Tree], release: Release) -> Tree | None:
+    """A entrada da release, só quando é do mesmo registro (mesmo commit e mesmo momento)."""
+    tree = trees.get(release.id)
+    if tree is None or (tree.git_sha, tree.at) != (release.git_sha, release.at):
+        return None
+    return tree
+
+
+def record_tree(
+    state_path: Path, target: str, release: Release, tree: Tree
+) -> list[str]:
+    """Grava a entrada da release; o arquivo ilegível é regravado e vira aviso, nunca erro."""
+    path, notes = trees_file(state_path, target), []
+    try:
+        trees = read_trees(state_path, target)
+    except StateError as error:
+        trees = {}
+        notes.append(f"{path.as_posix()} estava ilegível ({error}); regravado do zero")
+    trees.pop(release.id, None)
+    trees[release.id] = tree.model_copy(
+        update={"git_sha": release.git_sha, "at": release.at}
+    )
+    _write_atomic(path, TREES.dump_json(trees, indent=2).decode("utf-8") + "\n")
+    return notes
 
 
 def _write_atomic(path: Path, body: str) -> None:
