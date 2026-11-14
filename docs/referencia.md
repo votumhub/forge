@@ -1,6 +1,6 @@
 # forge: referência
 
-Referência técnica completa do forge 3.0.0 (formato de manifesto `forge: 2`), para consulta e
+Referência técnica completa do forge 3.0.2 (formato de manifesto `forge: 2`), para consulta e
 para LLMs. A visão geral e o primeiro deploy estão no [README](../README.md); a operação por
 agentes, em [para-agentes.md](para-agentes.md). Onde esta página e o código divergirem, o código
 vence: `forge/model.py` é a fonte do formato, e `forge schema` imprime o JSON Schema derivado

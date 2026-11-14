@@ -38,7 +38,7 @@ O repositório começa vazio, com git. O `uvx` roda o `init` sem instalar nada a
 mkdir meu-servico && cd meu-servico
 git init -b develop
 git remote add origin https://github.com/minha-org/meu-servico.git
-uvx --from "git+https://github.com/votumhub/forge@v3.0.1" forge init --no-input
+uvx --from "git+https://github.com/votumhub/forge@v3.0.2" forge init --no-input
 ```
 
 O `remote` é opcional e serve para uma coisa: o `init` lê dali o registro de imagens de
@@ -110,7 +110,7 @@ que o `init` grava:
 
 ```toml
 [dependency-groups]
-forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.1"]
+forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.2"]
 ```
 
 ```

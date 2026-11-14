@@ -2,6 +2,13 @@
 
 Mudanças que importam para quem usa o forge. O formato do manifesto continua `forge: 2`.
 
+## 3.0.2
+
+### Corrigido
+
+- O forge prendia o pydantic na faixa 2.13 (`~=2.13.4`) e impedia o projeto que o usa de subir
+  para o pydantic 2.14 ou mais novo. Agora aceita qualquer pydantic 2 a partir do 2.13.4.
+
 ## 3.0.1
 
 ### Corrigido

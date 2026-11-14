@@ -1,6 +1,6 @@
 [project]
 name = "forge"
-version = "3.0.1"
+version = "3.0.2"
 description = "Leva um repositório Python do zero ao deploy em dev e prd por docker compose, a partir de um forge.yaml."
 readme = "README.md"
 license = "MIT"
@@ -24,16 +24,16 @@ classifiers = [
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "jinja2~=3.1.6",
-    "pydantic ~=2.13.4",
+    "pydantic >=2.13.4,<3",
     "pyyaml ~=6.0.3",
     "tzdata ; sys_platform == 'win32'",
 ]
 
 [project.urls]
 Homepage = "https://github.com/votumhub/forge"
-Documentation = "https://github.com/votumhub/forge/blob/v3.0.1/docs/referencia.md"
+Documentation = "https://github.com/votumhub/forge/blob/v3.0.2/docs/referencia.md"
 Issues = "https://github.com/votumhub/forge/issues"
-Changelog = "https://github.com/votumhub/forge/blob/v3.0.1/CHANGELOG.md"
+Changelog = "https://github.com/votumhub/forge/blob/v3.0.2/CHANGELOG.md"
 
 [project.scripts]
 forge = "forge.cli:main"
