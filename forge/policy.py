@@ -608,7 +608,7 @@ def loaded_compose(path: Path) -> dict[str, object]:
     return data if isinstance(data, dict) else {}
 
 
-def _resolved(text: str, env: Mapping[str, str]) -> str:
+def interpolated(text: str, env: Mapping[str, str]) -> str:
     def replace(match: re.Match[str]) -> str:
         found = env.get(match.group("name"), "")
         default = match.group("default")
@@ -622,7 +622,7 @@ def _included(path: Path, env: Mapping[str, str]) -> list[Path]:
     for entry in loaded_compose(path).get("include") or []:
         named = entry.get("path") if isinstance(entry, dict) else entry
         for relative in named if isinstance(named, list) else [named]:
-            found.append(path.parent / _resolved(str(relative), env))
+            found.append(path.parent / interpolated(str(relative), env))
     return found
 
 

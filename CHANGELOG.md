@@ -2,6 +2,46 @@
 
 Mudanças que importam para quem usa o forge. O formato do manifesto continua `forge: 2`.
 
+## 3.0.1
+
+### Corrigido
+
+- O rollback, manual ou a volta automática de production, subia a imagem da release anterior
+  com o código novo que um serviço monta do disco (bind mount de pasta do projeto, como
+  `./src:/app/src`). Agora, se o bundle tem código montado, o rollback leva o checkout ao commit
+  da release de volta (`git checkout --detach`) e carrega o bundle de novo dessa árvore antes de
+  subir: serviços, arquivos compose, jobs e código são todos os da release. Volume nomeado e bind
+  mount de fora do projeto são dado e nunca voltam; origem de bind com variável sem valor conta
+  como código.
+
+### Muda o comportamento
+
+| O que muda | Quem é afetado | O que fazer |
+|---|---|---|
+| Com código montado do disco, o rollback recusa, sem mexer no ar nem no state, quando há mudança não commitada no projeto, quando há no disco, ignorado pelo git, algo no caminho de um arquivo que o commit da release rastreia (o próprio arquivo, ou um diretório dele que é arquivo ou symlink: o checkout passaria por cima), quando o projeto não é repositório git, ou quando a release de volta não guardou commit, subiu de árvore suja ou não se sabe se subiu limpa (veja Atenção) | quem faz rollback em development com a árvore suja; projeto sem git que monta código; quem tirou do índice um arquivo que já foi commitado | guarde a mudança (`git commit`, `git stash -u`, ou mova o arquivo para fora do projeto) e rode de novo; sem commit para onde voltar, rode um deploy novo |
+| Depois de um rollback com código montado, o HEAD fica destacado no commit da release. A mensagem da volta automática e a recusa do deploy de production seguinte dizem `git checkout <branch>` com a branch de onde o checkout saiu | quem faz o próximo deploy de production do mesmo checkout | rode o `git checkout <branch>` da mensagem antes do próximo deploy |
+
+### Novo
+
+- `<state_path>/<alvo>.trees.json`, ao lado do state, gravado sob o mesmo lock, de forma
+  atômica e depois do state: para cada release que subiu ok, se a árvore tinha mudança não
+  commitada (`dirty`, também quando o id é uma tag) e a branch do checkout antes do deploy,
+  amarrados ao `git_sha` e ao `at` do registro (outro deploy com o mesmo id não herda a
+  entrada). Só é lido quando há código montado ou HEAD destacado; ilegível, o próximo deploy ok
+  o regrava com aviso, e falha ao gravá-lo nunca derruba o deploy que subiu; ilegível na hora
+  do rollback com código montado, production segue com aviso e development recusa. O `<alvo>.json`
+  continua no formato da 3.0.0 e a 3.0.0 o lê.
+- Os leitores do state e do arquivo de árvores ignoram campo que não conhecem: o próximo campo
+  novo não deixa a versão anterior sem ler o state.
+
+### Atenção
+
+- Release gravada pela 3.0.0 (inclusive a que reusa o id de uma gravada pela 3.0.1) não tem
+  entrada que valha em `<alvo>.trees.json`, então não se sabe se subiu de árvore suja. Com
+  código montado, o rollback para ela vale assim: id `<sha12>-dirty` é sujo em qualquer modo;
+  em production a árvore é sempre limpa (os checks exigem); id `<sha12>` é limpo; id de tag ou
+  de `--release`, em development, recusa a volta, porque pode ter subido de árvore suja.
+
 ## 3.0.0
 
 Primeira versão pública, sob licença MIT. Quem vem da 2.2.4 deve ler primeiro a quebra de

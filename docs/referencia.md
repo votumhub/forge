@@ -206,7 +206,8 @@ A imagem que o forge constrói leva a etiqueta `<bundle>-<artifact>:<release>` (
 ## 8. Ordem do deploy
 
 1. lock
-2. checks de production (§10)
+2. checks de production (§10); no rollback, o código montado do disco volta ao commit da
+   release (§9.1)
 3. jobs `before_deploy` (sem segredo)
 4. artifacts (build ou pull, digest)
 5. envelope (segredos)
@@ -254,12 +255,67 @@ subiu saudável e não se gravou: `a release <id> subiu saudável no alvo <alvo>
                "digests": {"app": "registry/app@sha256:..."}}]}
 ```
 
+Ao lado, `<state_path>/<alvo>.trees.json`, escrito sob o mesmo lock e de forma atômica depois
+do state, guarda como estava a árvore em cada deploy `ok`, pelo id da release (o mais recente por
+último):
+
+```json
+{"v1.3.0": {"git_sha": "...", "at": "...", "dirty": false, "branch": "main"}}
+```
+
+`dirty`: a árvore tinha mudança não commitada (também quando o id é uma tag ou foi dado com
+`--release`). `branch`: a branch do checkout antes da tentativa. `git_sha` e `at` amarram a
+entrada ao registro do state: ela só vale para a release com o mesmo id, o mesmo `git_sha` e o
+mesmo `at`. Release sem entrada que valha (gravada antes deste arquivo existir, ou por outro
+deploy com o mesmo id) tem `dirty` e `branch` desconhecidos. O arquivo só é lido quando o bundle
+tem código montado (§9.1) ou o HEAD está destacado; ilegível, o próximo deploy `ok` o regrava do
+zero e avisa no relatório, e uma falha ao gravá-lo vira linha do relatório, nunca erro. Com
+código montado e o arquivo ilegível, o rollback de production segue (avisa e conta a release
+limpa, porque production só sai de commit limpo) e o de development recusa. Os leitores do state
+e deste arquivo ignoram campo que não conhecem.
+
 Só release `ok` muda `current`. Lock em `<state_path>/.lock` (processo, máquina, momento); o
 lock de um processo que já morreu nesta máquina é tomado sozinho (Linux, macOS e Windows); acima
 de uma hora a mensagem sugere `--force-unlock`. Rollback: se a última tentativa falhou, reaplica
 a `current`; senão, a `ok` anterior à `current`. Roda o deploy com os digests dela, sem build nem
-pull. Num bundle sem imagem própria, o rollback volta o id e as imagens, não o código. Sem
-release `ok` para onde voltar, o rollback termina em erro dizendo para corrigir e rodar o deploy.
+pull, e grava o `git_sha` e o `dirty` dela. Sem release `ok` para onde voltar, o rollback
+termina em erro dizendo para corrigir e rodar o deploy.
+
+### 9.1 Código montado do disco
+
+Código montado é o bind mount de um serviço (compose, sintaxe curta `./src:/app/src` ou longa
+`type: bind`) cuja origem, resolvida a partir da pasta do arquivo compose, fica dentro da raiz do
+projeto e fora de `.forge/`. A origem é interpolada com o que o compose enxerga sem os segredos:
+o ambiente mínimo do processo (`PATH`, `HOME`, `USER`, `DOCKER_*` e afins, os mesmos que o forge
+passa ao compose), o `env` literal do alvo e os `FORGE_*`. Variável que fica sem valor (segredo,
+imagem de artifact, nome que o forge não passa ao compose) conta como código: é o lado seguro.
+Volume nomeado, volume anônimo e bind mount de fora da raiz são dado: o rollback nunca os toca.
+
+Se o bundle tem código montado, o rollback (o manual e a volta automática de production), sob o
+lock e depois dos checks, leva o checkout ao commit da release de volta (`git checkout --detach
+<git_sha>`) e carrega o bundle de novo dessa árvore: serviços, arquivos compose, jobs e o código
+montado são todos os da release. Assim a imagem antiga sobe com o código e a definição dela.
+O state e o lock continuam na pasta onde a tentativa os abriu, mesmo que o `forge.yaml` da
+release declare outro `state_path`. Arquivo ignorado fica intacto: o rollback recusa antes de
+qualquer checkout que passaria por cima dele (tabela abaixo). Depois, o HEAD fica destacado no
+commit da release: a mensagem da volta automática diz `rode git checkout <branch> antes`, com a
+branch de onde o checkout saiu (de `<alvo>.trees.json`), e o deploy de production seguinte,
+recusado por HEAD fora da branch, repete o comando.
+
+O rollback recusa, antes do checkout e sem mexer em nada (nem no ar nem no state), quando:
+
+| Situação | Fim da mensagem |
+|---|---|
+| há mudança não commitada na raiz (fora `.forge/`), inclusive arquivo não rastreado | `guarde a mudança (git commit, git stash -u, ou mova o arquivo para fora do projeto) e rode de novo forge rollback -t <alvo>` |
+| o commit da release rastreia um caminho que o HEAD não rastreia e que está ocupado no disco fora do git (ignorado): no próprio caminho há arquivo, ou diretório com arquivo, que o HEAD não rastreia, como um banco local ou um `.env` tirado do índice com `git rm --cached`; ou um diretório dele é arquivo ou symlink que o HEAD não rastreia, como `src/x` ignorado quando o commit rastreia `src/x/y.py`. A troca entre arquivo e diretório que o HEAD rastreia passa: é o git que a faz | a mesma, com `há arquivo fora do git no caminho do que o commit rastreia (<caminhos>)` |
+| a raiz não é repositório git | `Rode forge deploy -t <alvo> a partir do commit que quer no ar` |
+| a release de volta não guardou commit (`git_sha` nulo) ou subiu de árvore suja (`dirty` em `<alvo>.trees.json`, ou id terminado em `-dirty`) | `Rode forge deploy -t <alvo> a partir do commit que quer no ar` |
+| não se sabe se a release de volta subiu de árvore limpa: ela não tem entrada que valha em `<alvo>.trees.json` e o alvo é development com id que não é `<sha12>` (uma tag ou um `--release`). Sem entrada, o id `<sha12>-dirty` é sujo em qualquer modo; production e o id `<sha12>` são limpos | `Rode forge deploy -t <alvo> a partir do commit que quer no ar` |
+| o `git checkout` falha (commit ausente do clone) | `git checkout falhou: <saída do git>` |
+
+Na volta automática de production, a recusa entra na mensagem `a volta automática para a release
+<id> também falhou: ...` (§8.1). Bundle sem código montado não precisa de git para o rollback e
+não tem o checkout mexido.
 
 Imagens construídas (só development; em production nada é construído, então nada é removido):
 

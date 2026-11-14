@@ -3,13 +3,17 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import pytest
+import yaml
+from pydantic import BaseModel, ConfigDict
 
 from forge.artifacts import ArtifactError
 from forge.contracts import DeployContext, RunResult
@@ -21,11 +25,21 @@ from forge.deploy import (
     deploy_and_recover,
     rollback,
 )
+from forge.errors import ForgeError
 from forge.executor import StepError
-from forge.gitinfo import GitInfo
+from forge.gitinfo import GitInfo, read_git
 from forge.load import Loaded, load
 from forge.model import GitRule
-from forge.state import LockError, StateError, read_state, state_file
+from forge.state import (
+    LockError,
+    Release,
+    StateError,
+    read_state,
+    read_trees,
+    record,
+    state_file,
+    trees_file,
+)
 from forge.testing import FakeExecutor
 from tests.support import Writer, manifest
 
@@ -358,6 +372,417 @@ def test_rollback_reloads_release_interpolation(write_bundle: Writer) -> None:
     )
     assert ("stamp", "r1") in back.argvs()
     assert ("stamp", "r3") not in back.argvs()
+
+
+MOUNTED = """services:
+  worker:
+    image: python:3.12-alpine
+    volumes:
+      - ./src:/app/src
+      - data:/data
+      - /srv/shared:/shared
+      - ../outside:/outside
+      - type: volume
+        source: cache
+        target: /cache
+volumes:
+  data:
+  cache:
+"""
+
+
+class LegacyRelease(BaseModel):
+    """O leitor do forge 3.0.0 (forge/state.py da tag v3.0.0), copiado sem mudança."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    git_sha: str | None
+    at: str
+    status: Literal["ok", "failed"]
+    digests: dict[str, str] = {}
+
+
+class LegacyState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    current: str | None = None
+    releases: list[LegacyRelease] = []
+
+
+def git(root: Path, *argv: str) -> None:
+    identity = ["-c", "user.email=t@example.com", "-c", "user.name=t"]
+    subprocess.run(["git", *identity, *argv], cwd=root, check=True)
+
+
+def mounted_repo(
+    write_bundle: Writer, code: str, extra: Mapping[str, object] | None = None
+) -> Path:
+    root = write_bundle(
+        manifest(include=["resources/*.yaml"]),
+        {
+            "compose.yaml": MOUNTED,
+            "resources/worker.service.yaml": {"compose": ["compose.yaml"]},
+            "src/app.py": code,
+            ".gitignore": ".forge/\n",
+            **(extra or {}),
+        },
+    )
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "v1")
+    return root
+
+
+def commit_code(root: Path, code: str) -> None:
+    (root / "src" / "app.py").write_text(code, encoding="utf-8")
+    git(root, "commit", "-qam", code)
+
+
+def dev_rollback(root: Path, adapters: Adapters | None = None) -> Release:
+    return rollback(
+        loaded_dev(root, "r9"),
+        FakeExecutor(),
+        reload=lambda r: loaded_dev(root, r),
+        adapters=adapters,
+        report=print,
+    )
+
+
+def test_production_recovery_brings_mounted_code_back(write_bundle: Writer) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    service = Recorder([], fail_releases={"v2"})
+    adapters = Adapters(service, Recorder([]))
+
+    def at(release: str) -> Loaded:
+        return load(root, "prd", environ={}, release=release)
+
+    deploy(at("v1"), FakeExecutor(), approved=True, adapters=adapters, report=print)
+    (root / "extra.yaml").write_text("services:\n  extra:\n    image: x\n")
+    (root / "resources" / "extra.service.yaml").write_text("compose: [extra.yaml]\n")
+    git(root, "add", ".")
+    commit_code(root, "v2\n")
+    with pytest.raises(
+        DeployFailedError,
+        match=r"voltei sozinho para a release v1(.|\n)*destacado no commit "
+        r"[0-9a-f]{12} da release: rode git checkout main antes",
+    ):
+        deploy_and_recover(
+            at("v2"),
+            FakeExecutor(),
+            reload=at,
+            approved=True,
+            adapters=adapters,
+            report=print,
+        )
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v1\n"
+    assert service.events[2:] == [
+        "up extra",
+        "up worker",
+        "health extra",
+        "up worker",
+        "health worker",
+    ]
+    states = root / ".forge" / "state"
+    state = read_state(states, "prd")
+    first = state.releases[0]
+    assert [r.status for r in state.releases] == ["ok", "failed", "ok"]
+    assert state.releases[-1].git_sha == first.git_sha
+    assert read_trees(states, "prd")["v1"].branch == "main"
+    legacy = LegacyState.model_validate_json(state_file(states, "prd").read_bytes())
+    assert [r.id for r in legacy.releases] == ["v1", "v2", "v1"]
+    with pytest.raises(
+        ProductionCheckError,
+        match=r"HEAD está em detached\. O rollback deixa o HEAD destacado(.|\n)*"
+        r"rode git checkout main e o deploy de novo",
+    ):
+        deploy(at("v3"), FakeExecutor(), approved=True, adapters=adapters)
+
+
+def test_rollback_refuses_to_overwrite_uncommitted_change(
+    write_bundle: Writer,
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    service = Recorder([])
+    adapters = Adapters(service, Recorder([]))
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), adapters=adapters, report=print)
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), adapters=adapters, report=print)
+    (root / "src" / "app.py").write_text("local\n", encoding="utf-8")
+    service.events.clear()
+    with pytest.raises(
+        ForgeError,
+        match=r"mudança não commitada(.|\n)*código montado do disco \(src\)(.|\n)*"
+        r"git stash -u(.|\n)*forge rollback -t dev$",
+    ):
+        dev_rollback(root, adapters)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "local\n"
+    assert service.events == []
+    assert read_state(root / ".forge" / "state", "dev").current == "r2"
+
+
+@pytest.mark.parametrize(
+    ("tracked", "added", "ignored", "kind"),
+    [
+        ("src/data.db", None, "src/data.db", "file"),
+        ("src/x/y.py", None, "src/x", "file"),
+        ("src/x", "src/x/y.py", "src/x/data.db", "file"),
+        ("src/x", "src/x/y.py", "src/x/cache", "link"),
+        ("src/dados de produção.db", None, "src/dados de produção.db", "file"),
+        pytest.param(
+            'src/a"b.db',
+            None,
+            'src/a"b.db',
+            "file",
+            marks=pytest.mark.skipif(os.name == "nt", reason="aspas no nome"),
+        ),
+    ],
+    ids=[
+        "mesmo-caminho",
+        "diretorio-virou-arquivo",
+        "ignorado-dentro-de-diretorio-rastreado",
+        "link-dentro-de-diretorio-rastreado",
+        "espaco-e-acento",
+        "aspas",
+    ],
+)
+def test_rollback_refuses_to_overwrite_ignored_file(
+    write_bundle: Writer, tracked: str, added: str | None, ignored: str, kind: str
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n", {tracked: "seed\n"})
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), report=print)
+    git(root, "rm", "-rq", "/".join(tracked.split("/")[:2]))
+    if added is not None:
+        (root / added).parent.mkdir(parents=True, exist_ok=True)
+        (root / added).write_text("new\n", encoding="utf-8")
+    (root / ".gitignore").write_text(f".forge/\n{ignored}\n", encoding="utf-8")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "ignora o dado")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    live = root / ignored
+    if kind == "link":
+        live.symlink_to(root.parent, target_is_directory=True)
+    else:
+        live.write_text("IGNORED FILE LIVE DATA\n", encoding="utf-8")
+    with pytest.raises(
+        ForgeError,
+        match=r"arquivo fora do git no caminho do que o commit rastreia \("
+        + re.escape(tracked)
+        + r"\)",
+    ):
+        dev_rollback(root)
+    if kind == "link":
+        assert live.is_symlink()
+    else:
+        assert live.read_text(encoding="utf-8") == "IGNORED FILE LIVE DATA\n"
+    head = read_git(root)
+    assert head is not None and head.branch == "main"
+
+
+def corrupt_trees(root: Path, target: str) -> None:
+    trees_file(root / ".forge" / "state", target).write_text("{corrompido")
+
+
+def test_production_recovery_survives_unreadable_trees_file(
+    write_bundle: Writer,
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    adapters = Adapters(Recorder([], fail_releases={"v2"}), Recorder([]))
+
+    def at(release: str) -> Loaded:
+        return load(root, "prd", environ={}, release=release)
+
+    deploy(at("v1"), FakeExecutor(), approved=True, adapters=adapters, report=print)
+    commit_code(root, "v2\n")
+    corrupt_trees(root, "prd")
+    lines: list[str] = []
+    with pytest.raises(DeployFailedError, match="voltei sozinho para a release v1"):
+        deploy_and_recover(
+            at("v2"),
+            FakeExecutor(),
+            reload=at,
+            approved=True,
+            adapters=adapters,
+            report=lines.append,
+        )
+    assert any("ilegível" in line and "conta limpa" in line for line in lines)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v1\n"
+
+
+def test_development_rollback_refuses_unreadable_trees_file(
+    write_bundle: Writer,
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), report=print)
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    corrupt_trees(root, "dev")
+    with pytest.raises(StateError, match="ilegível"):
+        dev_rollback(root)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v2\n"
+
+
+def test_deploy_finishes_when_trees_file_cannot_be_written(
+    write_bundle: Writer,
+) -> None:
+    root = write_bundle(manifest())
+    states = root / ".forge" / "state"
+    trees_file(states, "dev").mkdir(parents=True)
+    lines: list[str] = []
+    release = deploy(loaded_dev(root, "r1"), FakeExecutor(), report=lines.append)
+    assert release.status == "ok"
+    assert read_state(states, "dev").current == "r1"
+    assert any(line.startswith("árvore da release r1 não registrada") for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("forget", "message"),
+    [
+        (False, "a release v1 subiu de árvore suja"),
+        (True, "o state não diz se a release v1 subiu de árvore limpa"),
+    ],
+    ids=["registrada", "state-sem-arvore"],
+)
+def test_rollback_refuses_release_from_dirty_tagged_tree(
+    write_bundle: Writer, forget: bool, message: str
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    git(root, "tag", "v1")
+    (root / "src" / "app.py").write_text("never committed\n", encoding="utf-8")
+    deploy(load(root, "dev", environ={}), FakeExecutor(), report=print)
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    states = root / ".forge" / "state"
+    assert read_trees(states, "dev")["v1"].dirty is True
+    if forget:
+        trees_file(states, "dev").unlink()
+    with pytest.raises(ForgeError, match=message):
+        dev_rollback(root)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v2\n"
+
+
+def test_rollback_keeps_state_where_the_attempt_opened_it(write_bundle: Writer) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), report=print)
+    data = yaml.safe_load((root / "forge.yaml").read_text(encoding="utf-8"))
+    data["targets"]["dev"]["state_path"] = ".forge/other"
+    (root / "forge.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    old, new = root / ".forge" / "state", root / ".forge" / "other"
+    new.mkdir()
+    for path in (state_file(old, "dev"), trees_file(old, "dev")):
+        (new / path.name).write_bytes(path.read_bytes())
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    assert dev_rollback(root).id == "r1"
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v1\n"
+    moved = read_state(new, "dev")
+    assert (moved.current, len(moved.releases)) == ("r1", 3)
+    assert len(read_state(old, "dev").releases) == 1
+    assert not (old / ".lock").exists() and not (new / ".lock").exists()
+
+
+def test_tree_entry_belongs_to_its_own_record(write_bundle: Writer) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    git(root, "tag", "v1")
+    deploy(load(root, "dev", environ={}), FakeExecutor(), report=print)
+    states = root / ".forge" / "state"
+    first = read_state(states, "dev").releases[0]
+    reused = first.model_copy(update={"at": "2000-01-01T00:00:00+00:00"})
+    record(states, "dev", reused)
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    assert read_trees(states, "dev")["v1"].dirty is False
+    with pytest.raises(ForgeError, match="o state não diz se a release v1"):
+        dev_rollback(root)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "v2\n"
+
+
+def test_dirty_suffix_wins_after_target_becomes_production(
+    write_bundle: Writer,
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n")
+    (root / "src" / "app.py").write_text("never committed\n", encoding="utf-8")
+    deploy(load(root, "dev", environ={}), FakeExecutor(), report=print)
+    commit_code(root, "v2\n")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    data = yaml.safe_load((root / "forge.yaml").read_text(encoding="utf-8"))
+    data["targets"]["dev"].update(mode="production", git={"branch": "main"})
+    (root / "forge.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    git(root, "commit", "-qam", "dev vira production")
+    trees_file(root / ".forge" / "state", "dev").unlink()
+    with pytest.raises(ForgeError, match=r"-dirty subiu de árvore suja"):
+        rollback(
+            load(root, "dev", environ={}, release="r3"),
+            FakeExecutor(),
+            reload=lambda r: load(root, "dev", environ={}, release=r),
+            approved=True,
+            report=print,
+        )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [("src/x", "src/x/y.py"), ("src/x/y.py", "src/x")],
+    ids=["volta-a-arquivo", "volta-a-diretorio"],
+)
+def test_rollback_swaps_tracked_file_and_directory(
+    write_bundle: Writer, before: str, after: str
+) -> None:
+    root = mounted_repo(write_bundle, "v1\n", {before: "old\n"})
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), report=print)
+    git(root, "rm", "-rq", "src/x")
+    (root / after).parent.mkdir(parents=True, exist_ok=True)
+    (root / after).write_text("new\n", encoding="utf-8")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "troca")
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    assert dev_rollback(root).id == "r1"
+    assert (root / before).read_text(encoding="utf-8") == "old\n"
+
+
+def test_unreadable_trees_file_never_stops_a_bundle_without_code(
+    write_bundle: Writer,
+) -> None:
+    root = write_bundle(manifest())
+    states = root / ".forge" / "state"
+    states.mkdir(parents=True)
+    trees_file(states, "dev").write_text("{corrompido", encoding="utf-8")
+    lines: list[str] = []
+    deploy(loaded_dev(root, "r1"), FakeExecutor(), report=lines.append)
+    assert any("ilegível" in line and "regravado" in line for line in lines)
+    deploy(loaded_dev(root, "r2"), FakeExecutor(), report=print)
+    trees_file(states, "dev").write_text("{corrompido", encoding="utf-8")
+    assert dev_rollback(root).id == "r1"
+    assert list(read_trees(states, "dev")) == ["r1"]
+
+
+def test_unresolved_bind_source_counts_as_code(
+    write_bundle: Writer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose = (
+        "services:\n  worker:\n    image: x\n    volumes:\n"
+        "      - ${CODE_DIR}:/app/code\n      - ${DOCKER_CODE}:/app/src\n"
+        "      - data:/data\nvolumes:\n  data:\n"
+    )
+    root = write_bundle(
+        manifest(include=["resources/*.yaml"]),
+        {
+            "compose.yaml": compose,
+            "resources/worker.service.yaml": {"compose": ["compose.yaml"]},
+        },
+    )
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(root.parent))
+    monkeypatch.setenv("DOCKER_CODE", "./src")
+    monkeypatch.setenv("CODE_DIR", "./ignored-by-compose")
+    for release in ("r1", "r2"):
+        deploy(loaded_dev(root, release), FakeExecutor(), report=print)
+    with pytest.raises(
+        ForgeError,
+        match=r"não guardou o commit(.|\n)*código montado do disco "
+        r"\(\$\{CODE_DIR\}, src\)",
+    ):
+        dev_rollback(root)
 
 
 def refuse_write(path: Path, body: str) -> None:

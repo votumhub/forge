@@ -38,7 +38,7 @@ O repositório começa vazio, com git. O `uvx` roda o `init` sem instalar nada a
 mkdir meu-servico && cd meu-servico
 git init -b develop
 git remote add origin https://github.com/minha-org/meu-servico.git
-uvx --from "git+https://github.com/votumhub/forge@v3.0.0" forge init --no-input
+uvx --from "git+https://github.com/votumhub/forge@v3.0.1" forge init --no-input
 ```
 
 O `remote` é opcional e serve para uma coisa: o `init` lê dali o registro de imagens de
@@ -110,7 +110,7 @@ que o `init` grava:
 
 ```toml
 [dependency-groups]
-forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.0"]
+forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.1"]
 ```
 
 ```
@@ -126,8 +126,10 @@ já tem `forge.yaml`, `forge init --recipe <nome>` só acrescenta os arquivos da
 Produção sai só de commit limpo, com ref que casa `targets.prd.git` (no molde, uma tag `v*`),
 com `--yes`, e puxa a imagem do registro em vez de construir. Se o deploy de produção falha
 depois de começar a subir, o forge volta sozinho à release anterior e termina em erro (se o
-state está ilegível ou não consegue gravar o desfecho, ele não volta e diz onde o serviço ficou). Os
-detalhes estão em [docs/referencia.md](docs/referencia.md).
+state está ilegível ou não consegue gravar o desfecho, ele não volta e diz onde o serviço ficou). A
+volta leva junto o código que um serviço monta do disco: o checkout vai ao commit da release
+anterior (recusa se houver mudança não commitada). Os detalhes estão em
+[docs/referencia.md](docs/referencia.md).
 
 ## Documentação
 

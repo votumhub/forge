@@ -88,8 +88,12 @@ def test_rollback_without_candidate_fails(tmp_path: Path) -> None:
 def test_empty_state_and_unreadable_state(tmp_path: Path) -> None:
     assert read_state(tmp_path, "dev").releases == []
     state_file(tmp_path, "dev").write_text(
-        '{"target": "dev", "extra": 1}', encoding="utf-8"
+        '{"target": "dev", "later": 1, "releases": [{"id": "r1", "git_sha": null, '
+        '"at": "t", "status": "ok", "later": 2}]}',
+        encoding="utf-8",
     )
+    assert [r.id for r in read_state(tmp_path, "dev").releases] == ["r1"]
+    state_file(tmp_path, "dev").write_text('{"releases": 1}', encoding="utf-8")
     with pytest.raises(StateError, match="ilegível"):
         read_state(tmp_path, "dev")
 

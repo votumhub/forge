@@ -158,6 +158,10 @@ desligue uma regra de outra forma.
    mensagem diz em que release o state parou, qual está no ar e o arquivo a consertar. Não rode
    outro deploy em cima sem ler.
 7. **Falha em development não volta sozinha.** A mensagem traz o `forge rollback -t <alvo>`.
+   Com código montado do disco (bind mount de pasta do projeto, como `./src:/app/src`), o
+   rollback faz checkout do commit da release de volta e deixa o HEAD destacado: volte à branch
+   antes do próximo deploy. Com mudança não commitada, ele recusa sem mexer em nada; não
+   descarte a mudança por conta própria, pergunte (referência §9.1).
 8. **`destroy` apaga as imagens construídas.** Depois dele, `rollback` em development não acha
    mais a imagem antiga: o caminho é um deploy novo.
 9. **Trava de deploy.** `deploy`, `rollback`, `destroy` e `restore` no mesmo alvo não rodam
