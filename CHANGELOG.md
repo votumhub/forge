@@ -2,6 +2,17 @@
 
 Mudanças que importam para quem usa o forge. O formato do manifesto continua `forge: 2`.
 
+## 3.0.3
+
+### Corrigido
+
+- A máscara de segredo valia também para a saída que o forge lê para decidir, e não só para a
+  que ele mostra. Um segredo cujo valor aparecesse dentro de um nome de serviço, de imagem ou de
+  hash (um usuário curto como `app`, por exemplo) virava `***` na leitura do `compose ps`, e o
+  `health.healthy` daquele serviço nunca ficava verde: o deploy esperava até o timeout e voltava.
+  Agora o forge lê a saída sem máscara e só mascara o que vai para a tela, o log e as mensagens
+  de erro.
+
 ## 3.0.2
 
 ### Corrigido

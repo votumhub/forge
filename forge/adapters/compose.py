@@ -187,7 +187,7 @@ def desired_hashes(ctx: DeployContext, service: Service) -> dict[str, str]:
     argv = [*compose_argv(ctx, service), "config", "--hash", "*"]
     output = require_ok(
         ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "config --hash"
-    ).output
+    ).data
     return dict(_pair(line) for line in output.splitlines() if line.strip())
 
 
@@ -200,7 +200,7 @@ def running_hashes(ctx: DeployContext, service: Service) -> dict[str, str]:
     ]  # fmt: skip
     output = require_ok(
         ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "docker ps"
-    ).output
+    ).data
     return dict(_pair(line) for line in output.splitlines() if line.strip())
 
 
@@ -224,9 +224,7 @@ def all_healthy(ctx: DeployContext, service: Service, wanted: list[str]) -> bool
     result = ctx.executor.run(argv, cwd=ctx.root, env=ctx.env)
     if not result.ok:
         return False
-    states = {
-        row.get("Service"): row.get("Health") for row in parse_rows(result.output)
-    }
+    states = {row.get("Service"): row.get("Health") for row in parse_rows(result.data)}
     return all(states.get(name) == "healthy" for name in wanted)
 
 

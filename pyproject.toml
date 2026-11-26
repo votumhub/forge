@@ -1,6 +1,6 @@
 [project]
 name = "forge"
-version = "3.0.2"
+version = "3.0.3"
 description = "Leva um repositório Python do zero ao deploy em dev e prd por docker compose, a partir de um forge.yaml."
 readme = "README.md"
 license = "MIT"

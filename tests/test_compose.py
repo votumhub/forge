@@ -161,6 +161,26 @@ def test_health_healthy_uses_compose_ps(tmp_path: Path) -> None:
         )
 
 
+def test_a_secret_inside_a_service_name_does_not_hide_its_health(
+    tmp_path: Path,
+) -> None:
+    fake = FakeExecutor()
+    fake.hide(["web"])
+    fake.respond(
+        ["docker", "compose"],
+        output=json.dumps({"Service": "web", "Health": "healthy"}),
+    )
+    clock = Clock()
+    adapter = ComposeAdapter(sleep=clock.sleep, clock=clock)
+    service = Service(
+        compose=["compose.yaml"], health=Health(healthy=["web"], timeout=3)
+    )
+
+    adapter.health(context(tmp_path, fake), "app", service)
+
+    assert clock.now == 0.0
+
+
 def test_health_command(tmp_path: Path) -> None:
     fake = FakeExecutor()
     fake.respond(["check"], code=0)
