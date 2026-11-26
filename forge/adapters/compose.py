@@ -11,9 +11,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 
-from forge.contracts import DeployContext
+from forge.contracts import DeployContext, RunResult
 from forge.errors import ForgeError
-from forge.executor import require_ok
+from forge.executor import OUTPUT_TAIL, require_ok
 from forge.model import Health, Service
 from forge.policy import compose_files, loaded_compose
 
@@ -185,10 +185,9 @@ class ComposeAdapter:
 
 def desired_hashes(ctx: DeployContext, service: Service) -> dict[str, str]:
     argv = [*compose_argv(ctx, service), "config", "--hash", "*"]
-    output = require_ok(
-        ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "config --hash"
-    ).data
-    return dict(_pair(line) for line in output.splitlines() if line.strip())
+    return _pairs(
+        require_ok(ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "config --hash")
+    )
 
 
 def running_hashes(ctx: DeployContext, service: Service) -> dict[str, str]:
@@ -198,17 +197,19 @@ def running_hashes(ctx: DeployContext, service: Service) -> dict[str, str]:
         "--filter", f"label={label}.project={project_of(ctx, service)}",
         "--format", f'{{{{.Label "{label}.service"}}}} {{{{.Label "{label}.config-hash"}}}}',
     ]  # fmt: skip
-    output = require_ok(
-        ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "docker ps"
-    ).data
-    return dict(_pair(line) for line in output.splitlines() if line.strip())
+    return _pairs(
+        require_ok(ctx.executor.run(argv, cwd=ctx.root, env=ctx.env), "docker ps")
+    )
 
 
-def _pair(line: str) -> tuple[str, str]:
-    parts = line.split()
-    if len(parts) != 2:
-        raise ComposeError(f"saída inesperada do docker: {line!r}")
-    return parts[0], parts[1]
+def _pairs(result: RunResult) -> dict[str, str]:
+    """Lê a saída sem máscara; o erro mostra só a mascarada."""
+    rows = [line.split() for line in result.data.splitlines() if line.strip()]
+    if any(len(parts) != 2 for parts in rows):
+        raise ComposeError(
+            f"saída inesperada do docker:\n{result.output[-OUTPUT_TAIL:]}"
+        )
+    return {parts[0]: parts[1] for parts in rows}
 
 
 def _change(current: str | None, desired: str, blind: bool) -> str:
@@ -224,7 +225,13 @@ def all_healthy(ctx: DeployContext, service: Service, wanted: list[str]) -> bool
     result = ctx.executor.run(argv, cwd=ctx.root, env=ctx.env)
     if not result.ok:
         return False
-    states = {row.get("Service"): row.get("Health") for row in parse_rows(result.data)}
+    try:
+        rows = parse_rows(result.data)
+    except ComposeError as error:
+        raise ComposeError(
+            f"docker compose ps devolveu algo ilegível: {result.output[:200]}"
+        ) from error.__cause__
+    states = {row.get("Service"): row.get("Health") for row in rows}
     return all(states.get(name) == "healthy" for name in wanted)
 
 

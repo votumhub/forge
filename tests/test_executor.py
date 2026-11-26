@@ -21,6 +21,16 @@ def test_output_masks_hidden_values(tmp_path: Path) -> None:
     assert result.output.strip() == "token=*** ok"
 
 
+def test_the_forge_reads_the_output_unmasked(tmp_path: Path) -> None:
+    executor = LocalExecutor()
+    executor.hide(["s3cr3t-value"])
+    script = "import os; print('token=' + os.environ['V'] + ' ok')"
+    result = executor.run([PY, "-c", script], cwd=tmp_path, env={"V": "s3cr3t-value"})
+    assert result.output.strip() == "token=*** ok"
+    assert result.data.strip() == "token=s3cr3t-value ok"
+    assert "s3cr3t-value" not in repr(result)
+
+
 def test_env_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEAKY_PARENT_VAR", "leak")
     script = "import os; print(os.environ.get('LEAKY_PARENT_VAR'), os.environ['MINE'])"

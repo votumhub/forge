@@ -52,7 +52,7 @@ def test_run_triggers_the_target_deployment(write_bundle: Writer) -> None:
         ("prefect", "deployment", "run", "daily-load/daily_load-dev")
     ]
     assert fake.calls[0].env["PREFECT_API_URL"].endswith("@prefect/api")
-    assert output == "run at ***"
+    assert output.output == "run at ***"
 
 
 def test_run_unknown_job_and_production_needs_yes(write_bundle: Writer) -> None:
