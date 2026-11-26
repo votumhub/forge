@@ -87,7 +87,7 @@ class LocalExecutor:
             raise StepError(_not_started(shown, argv[0], program, error)) from error
         output = mask(done.stdout, self._hidden)
         _refuse_unreachable_docker(shown, argv[0], done.returncode, output)
-        return RunResult(tuple(argv), done.returncode, output)
+        return RunResult(tuple(argv), done.returncode, output, done.stdout)
 
 
 def _not_started(shown: str, name: str, program: str, error: OSError) -> str:

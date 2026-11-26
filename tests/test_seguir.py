@@ -574,6 +574,18 @@ def test_run_seguir_follows_the_run_it_created_and_shows_only_the_declared_logge
     assert {query["flow_runs"]["id"]["any_"][0] for query in fake.queries()} == {RUN_ID}
 
 
+def test_run_seguir_finds_the_run_even_when_a_secret_matches_part_of_its_id(
+    write_bundle: Writer,
+) -> None:
+    fake = Fake(script=[COMPLETED])
+    made, where = executor(), screen()
+    made.hide([RUN_ID[:4]])
+
+    follow_job(loaded(write_bundle), JOB, made, reader=reader(fake), screen=where)
+
+    assert {query["flow_runs"]["id"]["any_"][0] for query in fake.queries()} == {RUN_ID}
+
+
 @pytest.mark.parametrize("final", [FAILED, CANCELLED])
 def test_run_seguir_exits_1_when_the_run_does_not_complete(
     write_bundle: Writer, final: dict[str, Any]

@@ -82,7 +82,7 @@ def _present_tags(
         return set(), [
             f"imagens de {repository}: não listadas ({_last_line(result.output)})"
         ]
-    return {line.strip() for line in result.output.splitlines() if line.strip()}, []
+    return {line.strip() for line in result.data.splitlines() if line.strip()}, []
 
 
 def _remove(loaded: Loaded, executor: Executor, tag: str) -> str:
@@ -149,7 +149,7 @@ def pinned(executor: Executor, loaded: Loaded, name: str, ref: str) -> str:
         f"inspect de {name}",
     )
     try:
-        image = json.loads(result.output)[0]
+        image = json.loads(result.data)[0]
         digests = image.get("RepoDigests") or []
         return str(digests[0] if digests else image["Id"])
     except (

@@ -24,7 +24,7 @@ from forge.adapters.prefect import (
 )
 from forge.commands._common import add_target_args, load_from
 from forge.commands.env import deployed_images
-from forge.contracts import DeployContext, Executor
+from forge.contracts import DeployContext, Executor, RunResult
 from forge.deploy import prepared_context
 from forge.envelope import envelope_for
 from forge.errors import ForgeError
@@ -109,7 +109,9 @@ def _context(
     return prepared_context(loaded, executor, deployed_images(loaded))
 
 
-def run_job(loaded: Loaded, job: str, executor: Executor, *, approved: bool) -> str:
+def run_job(
+    loaded: Loaded, job: str, executor: Executor, *, approved: bool
+) -> RunResult:
     ctx = _context(loaded, job, executor, approved=approved)
     return PrefectAdapter(loaded.name, loaded.flow_jobs).run(ctx, job, loaded.jobs[job])
 
@@ -232,9 +234,9 @@ def follow_job(
     """`run --seguir`: dispara e acompanha a rodada que o disparo criou, pelo id que o CLI
     devolve; procurar pelo deployment poderia pegar outra rodada da agenda."""
     screen = screen or Screen()
-    output = run_job(loaded, job, executor, approved=approved)
-    print(output.rstrip(), file=screen.err, flush=True)
-    run_id = created_run_id(output)
+    started = run_job(loaded, job, executor, approved=approved)
+    print(started.output.rstrip(), file=screen.err, flush=True)
+    run_id = created_run_id(started.data)
     return follow_run(
         loaded, job, run_id, reader=reader, screen=screen, timeout=timeout
     )
@@ -291,7 +293,7 @@ class _Printer:
 def run(args: argparse.Namespace) -> int:
     loaded = load_from(args)
     if not args.seguir:
-        print(run_job(loaded, args.job, LocalExecutor(), approved=args.yes))
+        print(run_job(loaded, args.job, LocalExecutor(), approved=args.yes).output)
         return 0
     _check(loaded, args.job, approved=args.yes)
     reader = api_for(loaded)  # sem PREFECT_API_URL, recusa antes de criar a rodada

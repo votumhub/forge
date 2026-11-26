@@ -104,6 +104,17 @@ def test_failed_image_step_stops(
         resolve_artifacts(load(root, target, release="r1", environ={}), fake)
 
 
+def test_a_secret_inside_the_digest_does_not_change_the_pinned_image(
+    write_bundle: Writer,
+) -> None:
+    root = artifacts_bundle(write_bundle, pull="ghcr.io/o/app:1")
+    fake = FakeExecutor()
+    fake.hide(["remote"])
+    fake.respond(["docker", "image", "inspect"], output=REMOTE)
+    digests = resolve_artifacts(load(root, "dev", release="r1", environ={}), fake)
+    assert "ghcr.io/o/app@sha256:remote" in json.dumps(digests, default=str)
+
+
 def test_unreadable_inspect(write_bundle: Writer) -> None:
     root = artifacts_bundle(write_bundle, pull="ghcr.io/o/app:1")
     fake = FakeExecutor()

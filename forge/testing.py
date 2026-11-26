@@ -63,7 +63,10 @@ class FakeExecutor:
                 if response.error is not None:
                     raise response.error
                 return RunResult(
-                    argv, response.code, mask(response.output, self.hidden)
+                    argv,
+                    response.code,
+                    mask(response.output, self.hidden),
+                    response.output,
                 )
         return RunResult(argv, 0, "")
 

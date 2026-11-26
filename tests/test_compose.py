@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from forge.adapters.compose import ComposeAdapter, HealthError, expand, parse_rows
+from forge.adapters.compose import (
+    ComposeAdapter,
+    ComposeError,
+    HealthError,
+    expand,
+    parse_rows,
+    running_hashes,
+)
 from forge.contracts import DeployContext
 from forge.model import Health, Service
 from forge.testing import FakeExecutor
@@ -159,6 +166,55 @@ def test_health_healthy_uses_compose_ps(tmp_path: Path) -> None:
                 health=Health(healthy=["web", "db"], timeout=3),
             ),
         )
+
+
+def test_a_secret_inside_a_service_name_does_not_hide_its_health(
+    tmp_path: Path,
+) -> None:
+    fake = FakeExecutor()
+    fake.hide(["web"])
+    fake.respond(
+        ["docker", "compose"],
+        output=json.dumps({"Service": "web", "Health": "healthy"}),
+    )
+    clock = Clock()
+    adapter = ComposeAdapter(sleep=clock.sleep, clock=clock)
+    service = Service(
+        compose=["compose.yaml"], health=Health(healthy=["web"], timeout=3)
+    )
+
+    adapter.health(context(tmp_path, fake), "app", service)
+
+    assert clock.now == 0.0
+
+
+def test_the_hashes_are_read_unmasked_and_a_bad_line_shows_only_masked(
+    tmp_path: Path,
+) -> None:
+    fake = FakeExecutor()
+    fake.hide(["web"])
+    fake.respond(["docker", "ps"], output="web abc\n")
+    ctx = context(tmp_path, fake)
+    service = Service(compose=["compose.yaml"])
+
+    assert running_hashes(ctx, service) == {"web": "abc"}
+
+    fake.respond(["docker", "ps"], output="aviso: web caiu\n")
+    with pytest.raises(ComposeError) as raised:
+        running_hashes(ctx, service)
+    assert "web" not in str(raised.value) and "***" in str(raised.value)
+
+
+def test_an_unreadable_compose_ps_shows_only_the_masked_output(tmp_path: Path) -> None:
+    fake = FakeExecutor()
+    fake.hide(["s3cr3t"])
+    fake.respond(["docker", "compose"], output="erro s3cr3t {")
+    adapter = ComposeAdapter(sleep=Clock().sleep, clock=Clock())
+    service = Service(compose=["compose.yaml"], health=Health(healthy=["web"]))
+
+    with pytest.raises(ComposeError) as raised:
+        adapter.health(context(tmp_path, fake), "app", service)
+    assert "s3cr3t" not in str(raised.value) and "***" in str(raised.value)
 
 
 def test_health_command(tmp_path: Path) -> None:

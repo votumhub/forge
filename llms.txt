@@ -2,7 +2,7 @@
 
 > CLI Python que leva um repositório do zero ao deploy em dev e prd por docker compose, a partir de um forge.yaml, com release registrada, rollback e destroy.
 
-Instale no projeto com `forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.2"]` em `[dependency-groups]` e `uv sync --group forge`; rode `uv run forge <verbo>`. Antes de operar, leia o guia para agentes: ele diz a ordem segura, o que muda o alvo e o que só uma pessoa decide. O contrato sai da própria CLI: `forge schema`, `forge recipes -o json`, `forge validate --strict`.
+Instale no projeto com `forge = ["forge @ git+https://github.com/votumhub/forge@v3.0.3"]` em `[dependency-groups]` e `uv sync --group forge`; rode `uv run forge <verbo>`. Antes de operar, leia o guia para agentes: ele diz a ordem segura, o que muda o alvo e o que só uma pessoa decide. O contrato sai da própria CLI: `forge schema`, `forge recipes -o json`, `forge validate --strict`.
 
 ## Docs
 
@@ -12,5 +12,5 @@ Instale no projeto com `forge = ["forge @ git+https://github.com/votumhub/forge@
 
 ## Optional
 
-- [Changelog](CHANGELOG.md): o que mudou da 2.2.4 para a 3.0.2
+- [Changelog](CHANGELOG.md): o que mudou da 2.2.4 para a 3.0.3
 - [Segurança](SECURITY.md): como relatar vulnerabilidade e os cuidados de operação

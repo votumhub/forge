@@ -23,14 +23,20 @@ class RunResult:
     argv: tuple[str, ...]
     code: int
     output: str
+    unmasked: str | None = field(default=None, repr=False)
 
     @property
     def ok(self) -> bool:
         return self.code == 0
 
+    @property
+    def data(self) -> str:
+        """A saída sem máscara, para o forge ler; nunca para mostrar ou registrar."""
+        return self.output if self.unmasked is None else self.unmasked
+
 
 class Executor(Protocol):
-    """Roda argv sem shell, com env explícito, e mascara na saída o que foi escondido."""
+    """Roda argv sem shell, com env explícito; `output` mascara o que foi escondido, `data` não."""
 
     def run(
         self,

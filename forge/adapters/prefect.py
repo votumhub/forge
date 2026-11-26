@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import yaml
 
-from forge.contracts import DeployContext
+from forge.contracts import DeployContext, RunResult
 from forge.errors import ForgeError
 from forge.executor import require_ok
 from forge.model import Job
@@ -120,10 +120,10 @@ class PrefectAdapter:
     def health(self, ctx: DeployContext, name: str, job: Job) -> None:
         del ctx, name, job
 
-    def run(self, ctx: DeployContext, name: str, job: Job) -> str:
+    def run(self, ctx: DeployContext, name: str, job: Job) -> RunResult:
         argv = ["prefect", "deployment", "run", full_name(ctx, name, job)]
         result = ctx.executor.run(argv, cwd=ctx.root, env=cli_env(ctx))
-        return require_ok(result, f"run do job {name}").output
+        return require_ok(result, f"run do job {name}")
 
     def destroy(
         self, ctx: DeployContext, name: str, job: Job, *, data: bool = False
