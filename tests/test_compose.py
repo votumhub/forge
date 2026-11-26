@@ -205,6 +205,18 @@ def test_the_hashes_are_read_unmasked_and_a_bad_line_shows_only_masked(
     assert "web" not in str(raised.value) and "***" in str(raised.value)
 
 
+def test_an_unreadable_compose_ps_shows_only_the_masked_output(tmp_path: Path) -> None:
+    fake = FakeExecutor()
+    fake.hide(["s3cr3t"])
+    fake.respond(["docker", "compose"], output="erro s3cr3t {")
+    adapter = ComposeAdapter(sleep=Clock().sleep, clock=Clock())
+    service = Service(compose=["compose.yaml"], health=Health(healthy=["web"]))
+
+    with pytest.raises(ComposeError) as raised:
+        adapter.health(context(tmp_path, fake), "app", service)
+    assert "s3cr3t" not in str(raised.value) and "***" in str(raised.value)
+
+
 def test_health_command(tmp_path: Path) -> None:
     fake = FakeExecutor()
     fake.respond(["check"], code=0)
